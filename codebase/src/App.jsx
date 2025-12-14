@@ -7,11 +7,11 @@ function App() {
   const [inputText, setInputText] = useState('')
   const [username, setUsername] = useState('')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-  
+
   // States for features
   const [replyTo, setReplyTo] = useState(null)     // The message object being replied to
   const [editingId, setEditingId] = useState(null) // ID of message being edited
-  
+
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -58,7 +58,7 @@ function App() {
       .from('messages')
       .select('*')
       .order('created_at', { ascending: true })
-    
+
     if (error) {
       console.error('❌ Error fetching messages:', error);
     } else {
@@ -69,18 +69,18 @@ function App() {
 
   const handleRealtimeEvent = (payload) => {
     const { eventType, new: newRow, old: oldRow } = payload
-    
+
     console.log(`Processing ${eventType} event...`);
 
     setMessages((prev) => {
       if (eventType === 'INSERT') {
         console.log('➕ Adding new message to state:', newRow);
         return [...prev, newRow]
-      } 
+      }
       else if (eventType === 'UPDATE') {
         console.log('✎ Updating message in state:', newRow);
         return prev.map(msg => (msg.id === newRow.id ? newRow : msg))
-      } 
+      }
       else if (eventType === 'DELETE') {
         console.log('wm Deleting message from state:', oldRow);
         return prev.filter(msg => msg.id !== oldRow.id)
@@ -104,7 +104,7 @@ function App() {
         .from('messages')
         .update({ content: inputText, is_edited: true })
         .eq('id', editingId)
-      
+
       if (error) console.error('❌ Error updating message:', error);
       else console.log('✅ Message updated successfully');
 
@@ -116,7 +116,7 @@ function App() {
         content: inputText,
         reply_to_id: replyTo ? replyTo.id : null
       }
-      
+
       console.log('Attempting to INSERT new message:', payload);
       const { error } = await supabase.from('messages').insert([payload])
 
@@ -125,13 +125,13 @@ function App() {
 
       setReplyTo(null)
     }
-    
+
     setInputText('')
   }
 
   const handleDelete = async (id) => {
     if (!confirm("Delete this message?")) return
-    
+
     console.log(`Attempting to DELETE message ID: ${id}`);
     const { error } = await supabase.from('messages').delete().eq('id', id)
 
@@ -167,7 +167,7 @@ function App() {
     if (!parent) return "Message deleted"
     return parent.content.length > 50 ? parent.content.substring(0, 50) + "..." : parent.content
   }
-  
+
   const getReplyingToUser = (id) => {
     const parent = messages.find(m => m.id === id)
     return parent ? parent.username : "Unknown"
@@ -178,7 +178,8 @@ function App() {
     return (
       <div className="login-container">
         <div className="login-card">
-          <h2 style={{color: '#008069', marginBottom: '1rem'}}>Join Chat</h2>
+          <h2 style={{ color: '#008069', marginBottom: '1rem' }}>Rayabaari</h2>
+          <h2 style={{ color: '#008069', marginBottom: '1rem' }}>Join Chat</h2>
           <input
             type="text"
             className="login-input"
@@ -212,7 +213,7 @@ function App() {
           return (
             <div key={msg.id} className={`message-row ${isMe ? 'mine' : 'theirs'}`}>
               <div className="bubble">
-                
+
                 {/* 1. Reply Quote (If this message is a reply) */}
                 {msg.reply_to_id && (
                   <div className="reply-quote">
@@ -263,7 +264,7 @@ function App() {
               ) : (
                 <>
                   <strong>Replying to {replyTo.username}</strong>
-                  <span style={{fontSize: '0.8em', color: '#555'}}>
+                  <span style={{ fontSize: '0.8em', color: '#555' }}>
                     {replyTo.content.substring(0, 40)}...
                   </span>
                 </>
@@ -280,7 +281,7 @@ function App() {
             placeholder={editingId ? "Edit your message..." : "Type a message..."}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            // Shift+Enter handled by browser (new line), Enter does nothing unless we add logic
+          // Shift+Enter handled by browser (new line), Enter does nothing unless we add logic
           />
           <button type="submit" className="send-btn">
             {editingId ? 'Save' : 'Send'}
