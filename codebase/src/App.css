@@ -130,6 +130,22 @@ body {
   border-top-left-radius: 0;
 }
 
+/* --- IMAGES IN CHAT --- */
+.image-container {
+  margin-bottom: 5px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.chat-image {
+  max-width: 100%;
+  max-height: 300px;
+  display: block;
+  border-radius: 8px;
+  object-fit: cover;
+  cursor: pointer;
+}
+
 .sender-name {
   font-size: 0.75rem;
   font-weight: bold;
@@ -209,8 +225,8 @@ body {
   position: relative;
 }
 
-/* Reply Preview Banner (Above Input) */
-.reply-banner {
+/* Reply & Preview Banner */
+.reply-banner, .preview-banner {
   background-color: #e9edef;
   border-left: 5px solid #008069;
   padding: 8px 12px;
@@ -219,6 +235,13 @@ body {
   align-items: center;
   font-size: 0.9rem;
 }
+
+.preview-banner {
+  border-left-color: #00a884; /* Slightly different shade */
+  background-color: #d9fdd3;
+  color: black;
+}
+
 .reply-banner strong {
   color: #008069;
   display: block;
@@ -239,15 +262,29 @@ body {
   align-items: flex-end; /* Align bottom for multiline */
 }
 
+/* ATTACH BUTTON */
+.attach-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #54656f;
+  cursor: pointer;
+  padding: 0 5px;
+  margin-bottom: 5px; /* Alignment fix */
+}
+.attach-btn:hover {
+  color: #008069;
+}
+
 .chat-input {
   flex: 1;
   padding: 12px;
   border-radius: 20px;
   border: 1px solid #ddd;
   outline: none;
-  resize: none; /* Prevent manual resize */
+  resize: none; 
   min-height: 44px;
-  max-height: 120px; /* Scroll after this height */
+  max-height: 120px;
   font-family: inherit;
   overflow-y: auto;
 }
@@ -261,4 +298,9 @@ body {
   cursor: pointer;
   font-weight: bold;
   height: 44px;
+}
+
+.send-btn:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
 }
