@@ -2,9 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabaseClient'
 import './App.css'
 
-import {Paperclip,Send,Edit,Trash2,Reply,ChevronUp,
-  ChevronDown,Search,
-  X
+import { 
+  Paperclip, Send, Edit, Trash2, Reply, 
+  ChevronUp, ChevronDown, X 
 } from 'lucide-react';
 
 function App() {
@@ -13,21 +13,20 @@ function App() {
   const [username, setUsername] = useState('')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
 
-  // --- NEW STATES for Search & Stats ---
+  // --- Search & Stats ---
   const [activeUsers, setActiveUsers] = useState(0)
   const [searchTerm, setSearchTerm] = useState('')
-  const [searchMatches, setSearchMatches] = useState([]) 
-  const [currentMatchIndex, setCurrentMatchIndex] = useState(-1) 
+  const [searchMatches, setSearchMatches] = useState([])
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(-1)
 
-  // --- NEW STATES for Image Upload ---
+  // --- Image Upload ---
   const [selectedFile, setSelectedFile] = useState(null)
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef(null)
 
-  // States for features
+  // --- UI States ---
   const [replyTo, setReplyTo] = useState(null)
   const [editingId, setEditingId] = useState(null)
-
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -38,7 +37,6 @@ function App() {
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    console.log('User logged in, initializing chat...');
     fetchMessages()
 
     const channel = supabase
@@ -48,8 +46,7 @@ function App() {
       })
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState()
-        const count = Object.keys(state).length
-        setActiveUsers(count)
+        setActiveUsers(Object.keys(state).length)
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
@@ -57,9 +54,7 @@ function App() {
         }
       })
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { supabase.removeChannel(channel) }
   }, [isLoggedIn])
 
   // Scroll to bottom on new messages
@@ -77,43 +72,23 @@ function App() {
       return
     }
 
-    const matches = messages.reduce((acc, msg) => {
-      const matchContent = (msg.content || '').toLowerCase().includes(searchTerm.toLowerCase())
-      const matchUser = msg.username.toLowerCase().includes(searchTerm.toLowerCase())
-      if (matchContent || matchUser) {
-        acc.push(msg.id)
-      }
-      return acc
-    }, [])
+    const matches = messages
+      .filter(msg => 
+        (msg.content || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        msg.username.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .map(msg => msg.id)
 
     setSearchMatches(matches)
-    
-    if (matches.length > 0) {
-      setCurrentMatchIndex(0) 
-    } else {
-      setCurrentMatchIndex(-1)
-    }
+    setCurrentMatchIndex(matches.length > 0 ? 0 : -1)
   }, [searchTerm, messages])
 
   useEffect(() => {
     if (currentMatchIndex >= 0 && searchMatches.length > 0) {
       const matchId = searchMatches[currentMatchIndex]
-      const element = document.getElementById(`msg-${matchId}`)
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
+      document.getElementById(`msg-${matchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
-  }, [currentMatchIndex, searchMatches])
-
-  const handleNextMatch = () => {
-    if (searchMatches.length === 0) return
-    setCurrentMatchIndex((prev) => (prev + 1) % searchMatches.length)
-  }
-
-  const handlePrevMatch = () => {
-    if (searchMatches.length === 0) return
-    setCurrentMatchIndex((prev) => (prev - 1 + searchMatches.length) % searchMatches.length)
-  }
+  }, [currentMatchIndex])
 
   // --- 3. DATA HANDLERS ---
   const fetchMessages = async () => {
@@ -121,8 +96,7 @@ function App() {
       .from('messages')
       .select('*')
       .order('created_at', { ascending: true })
-
-    if (error) console.error('Error fetching messages:', error);
+    if (error) console.error('Error:', error)
     else setMessages(data)
   }
 
@@ -130,144 +104,135 @@ function App() {
     const { eventType, new: newRow, old: oldRow } = payload
     setMessages((prev) => {
       if (eventType === 'INSERT') return [...prev, newRow]
-      else if (eventType === 'UPDATE') return prev.map(msg => (msg.id === newRow.id ? newRow : msg))
-      else if (eventType === 'DELETE') return prev.filter(msg => msg.id !== oldRow.id)
+      if (eventType === 'UPDATE') return prev.map(msg => (msg.id === newRow.id ? newRow : msg))
+      if (eventType === 'DELETE') return prev.filter(msg => msg.id !== oldRow.id)
       return prev
     })
   }
 
-  // --- 4. FILE & SUBMIT ACTIONS ---
-  
+  // --- 4. ACTIONS (SUBMIT & DELETE) ---
+
   const handleFileSelect = (e) => {
-    if (e.target.files && e.target.files.length > 0) {
+    if (e.target.files?.[0]) {
       setSelectedFile(e.target.files[0])
     }
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    // Prevent empty send (unless a file is selected)
     if (!inputText.trim() && !selectedFile) return
 
+    // HANDLE EDIT
     if (editingId) {
-      // Logic for editing (currently text only)
       await supabase.from('messages').update({ content: inputText, is_edited: true }).eq('id', editingId)
-      setEditingId(null)
-      setInputText('')
+      cancelAction()
       return
     }
 
     let imageUrl = null
 
-    // Upload Image if exists
+    // HANDLE IMAGE UPLOAD
     if (selectedFile) {
       setIsUploading(true)
       try {
         const fileExt = selectedFile.name.split('.').pop()
-        const fileName = `${Date.now()}_${Math.random()}.${fileExt}`
-        const filePath = `${fileName}`
-
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
+        
         const { error: uploadError } = await supabase.storage
           .from('chat_images')
-          .upload(filePath, selectedFile)
+          .upload(fileName, selectedFile)
 
         if (uploadError) throw uploadError
 
-        const { data } = supabase.storage.from('chat_images').getPublicUrl(filePath)
+        const { data } = supabase.storage.from('chat_images').getPublicUrl(fileName)
         imageUrl = data.publicUrl
       } catch (error) {
-        console.error('Upload failed:', error)
-        alert('Failed to upload image')
+        alert('Upload failed: ' + error.message)
         setIsUploading(false)
         return
       }
       setIsUploading(false)
     }
 
-    // Insert Message
-    const payload = { 
-      username: username, 
+    // INSERT MESSAGE
+    const { error } = await supabase.from('messages').insert([{ 
+      username, 
       content: inputText, 
-      reply_to_id: replyTo ? replyTo.id : null,
+      reply_to_id: replyTo?.id || null,
       image_url: imageUrl
-    }
+    }])
 
-    await supabase.from('messages').insert([payload])
-    
-    // Reset inputs
-    setReplyTo(null)
-    setSelectedFile(null)
-    setInputText('')
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (!error) cancelAction()
   }
 
   const handleDelete = async (id) => {
-    if (!confirm("Delete this message?")) return
-    await supabase.from('messages').delete().eq('id', id)
+    if (!confirm("Delete this message permanently?")) return
+
+    try {
+      const msgToDelete = messages.find(m => m.id === id)
+      
+      // FIX: Also delete from Storage if an image exists
+      if (msgToDelete?.image_url) {
+        const urlParts = msgToDelete.image_url.split('/')
+        const fileName = urlParts[urlParts.length - 1]
+        
+        await supabase.storage
+          .from('chat_images')
+          .remove([fileName])
+      }
+
+      // Delete from DB
+      await supabase.from('messages').delete().eq('id', id)
+
+      // Cleanup local UI states
+      if (replyTo?.id === id) setReplyTo(null)
+      if (editingId === id) cancelAction()
+    } catch (err) {
+      console.error("Delete failed:", err)
+    }
   }
 
   const deleteAllConversations = async () => {
-    if (!confirm("⚠️ DELETE ALL conversations? This cannot be undone.")) return;
+    if (!confirm("⚠️ DELETE ALL? This wipes the database and storage records.")) return
+    
+    // Note: This logic only deletes DB rows. In a production app, 
+    // you'd need an Edge Function to loop and delete all storage files.
     const { error } = await supabase.from('messages').delete().neq('id', -1)
-    if (error) alert("Failed to delete. Check RLS policies.")
-    else setMessages([])
+    if (error) alert("Check RLS policies")
   }
 
-  const startReply = (msg) => { 
-    setEditingId(null); 
-    setReplyTo(msg); 
-    if (fileInputRef.current) fileInputRef.current.value = ''
+  const cancelAction = () => {
+    setReplyTo(null)
+    setEditingId(null)
+    setInputText('')
     setSelectedFile(null)
-  }
-  
-  const startEdit = (msg) => { 
-    setReplyTo(null); 
-    setEditingId(msg.id); 
-    setInputText(msg.content); 
-    setSelectedFile(null) // Disable file upload during edit for simplicity
-  }
-  
-  const cancelAction = () => { 
-    setReplyTo(null); 
-    setEditingId(null); 
-    setInputText(''); 
-    setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   // --- 5. RENDER HELPERS ---
   const highlightText = (text) => {
-    if (!text) return null;
-    if (!searchTerm.trim()) return text;
-    const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'));
+    if (!text || !searchTerm.trim()) return text
+    const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'))
     return parts.map((part, i) => 
       part.toLowerCase() === searchTerm.toLowerCase() 
-        ? <mark key={i} style={{ backgroundColor: '#ffeb3b', color: 'black', borderRadius: '2px' }}>{part}</mark> 
-        : part
-    );
+        ? <mark key={i} className="search-highlight">{part}</mark> : part
+    )
   }
 
-  const getReplyingToContent = (id) => {
-    const parent = messages.find(m => m.id === id)
-    if (!parent) return "Message deleted"
-    if (parent.image_url && !parent.content) return "📷 photo"
-    return parent.content.substring(0, 50) + (parent.content.length > 50 ? "..." : "")
-  }
-  
-  const getReplyingToUser = (id) => {
-    const parent = messages.find(m => m.id === id)
-    return parent ? parent.username : "Unknown"
-  }
-
-  // --- 6. RENDER UI ---
+  // --- 6. UI RENDER ---
   if (!isLoggedIn) {
     return (
       <div className="login-container">
         <div className="login-card">
-          <h2 style={{ color: '#008069' }}>Rayabaari</h2>
-          <h2 style={{ color: '#008069' }}>Chat Room</h2>
-          <input type="text" className="login-input" placeholder="Enter username" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <button className="login-btn" onClick={() => username && setIsLoggedIn(true)}>Start Chatting</button>
+          <h2 style={{ color: '#008069' }}>Rayabaari Chat</h2>
+          <input 
+            type="text" 
+            className="login-input" 
+            placeholder="Username" 
+            value={username} 
+            onChange={(e) => setUsername(e.target.value)} 
+          />
+          <button className="login-btn" onClick={() => username && setIsLoggedIn(true)}>Join Room</button>
         </div>
       </div>
     )
@@ -275,95 +240,66 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Header */}
-      <header className="chat-header" style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: 'auto', padding: '10px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-             <h3>Rayabaari</h3>
-             <span style={{ fontSize: '0.8rem', backgroundColor: '#25d366', color: 'white',fontWeight:'600',margin: '0 5px', padding: '2px 8px', borderRadius: '10px' }}>
-               {activeUsers} Active
-             </span>
+      <header className="chat-header">
+        <div className="header-top">
+          <div className="logo-area">
+            <h3>Rayabaari</h3>
+            <span className="badge">{activeUsers} Active</span>
           </div>
-          <span>{username}</span>
+          <span className="user-tag">{username}</span>
         </div>
 
-        {/* Search & Toolbar */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '5px', borderRadius: '8px' }}>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', position: 'relative' }}>
-            {/* <Search size={16} style={{ position: 'absolute', left: '5px', color: '#555' }} /> */}
+        <div className="toolbar">
+          <div className="search-box">
             <input 
               type="text" 
-              placeholder=" Find in chat..." 
+              placeholder="Search chat..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ flex: 1, padding: '6px', borderRadius: '4px', border: 'none', outline: 'none' }}
             />
-            {searchTerm && searchMatches.length > 0 && (
-              <span style={{ position: 'absolute', right: '5px', color: '#555', fontSize: '0.8rem' }}>
-                {currentMatchIndex + 1}/{searchMatches.length}
+            {searchTerm && (
+              <span className="search-count">
+                {searchMatches.length > 0 ? `${currentMatchIndex + 1}/${searchMatches.length}` : '0/0'}
               </span>
             )}
-            {searchTerm && searchMatches.length === 0 && (
-               <span style={{ position: 'absolute', right: '5px', color: '#d32f2f', fontSize: '0.8rem' }}>0/0</span>
-            )}
           </div>
-          <button onClick={handlePrevMatch} disabled={searchMatches.length === 0} style={{ padding: '4px 8px', cursor: 'pointer' }}><ChevronUp size={16} /></button>
-          <button onClick={handleNextMatch} disabled={searchMatches.length === 0} style={{ padding: '4px 8px', cursor: 'pointer' }}><ChevronDown size={16} /></button>
-          <button onClick={deleteAllConversations} style={{ backgroundColor: '#d32f2f', color: 'white', border: 'none', padding: '6px 10px', borderRadius: '10px', cursor: 'pointer', marginLeft: 'auto' }} title="Delete All">
-            <Trash2 size={16} />
-          </button>
+          <button onClick={() => setCurrentMatchIndex(p => (p - 1 + searchMatches.length) % searchMatches.length)} disabled={!searchMatches.length}><ChevronUp size={18}/></button>
+          <button onClick={() => setCurrentMatchIndex(p => (p + 1) % searchMatches.length)} disabled={!searchMatches.length}><ChevronDown size={18}/></button>
+          <button className="danger-btn" onClick={deleteAllConversations}><Trash2 size={18}/></button>
         </div>
       </header>
 
-      {/* Messages */}
       <div className="messages-list">
         {messages.map((msg) => {
           const isMe = msg.username === username;
-          const isCurrentMatch = searchMatches[currentMatchIndex] === msg.id;
+          const isMatch = searchMatches[currentMatchIndex] === msg.id;
 
           return (
-            <div 
-              key={msg.id} 
-              id={`msg-${msg.id}`} 
-              className={`message-row ${isMe ? 'mine' : 'theirs'}`}
-              style={isCurrentMatch ? { transition: '0.3s', transform: 'scale(1.02)' } : {}}
-            >
-              <div 
-                className="bubble"
-                style={isCurrentMatch ? { border: '2px solid #ffeb3b', boxShadow: '0 0 10px #ffeb3b' } : {}}
-              >
-                {/* Reply Section */}
+            <div key={msg.id} id={`msg-${msg.id}`} className={`message-row ${isMe ? 'mine' : 'theirs'}`}>
+              <div className={`bubble ${isMatch ? 'highlight-bubble' : ''}`}>
+                
+                {/* Reply Context */}
                 {msg.reply_to_id && (
                   <div className="reply-quote">
-                    <strong>{getReplyingToUser(msg.reply_to_id)}</strong>
-                    {getReplyingToContent(msg.reply_to_id)}
+                    <strong>{messages.find(m => m.id === msg.reply_to_id)?.username || 'Unknown'}</strong>
+                    <p>{messages.find(m => m.id === msg.reply_to_id)?.content || '📷 Attachment'}</p>
                   </div>
                 )}
 
-                {!isMe && <span className="sender-name">{highlightText(msg.username)}</span>}
+                {!isMe && <span className="sender-name">{msg.username}</span>}
                 
-                {/* IMAGE RENDERING */}
-                {msg.image_url && (
-                  <div className="image-container">
-                    <img src={msg.image_url} alt="Shared" className="chat-image" loading="lazy" />
-                  </div>
-                )}
-
-                {/* Text Content */}
-                {msg.content && <div style={{ whiteSpace: 'pre-wrap' }}>{highlightText(msg.content)}</div>}
+                {msg.image_url && <img src={msg.image_url} alt="Shared" className="chat-image" />}
+                {msg.content && <div className="text-content">{highlightText(msg.content)}</div>}
 
                 <div className="bubble-footer">
-                  {msg.is_edited && <span className="edited-tag">(edited)</span>}
-                  <span className="timestamp">
-                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                  {msg.is_edited && <span className="edited-tag">edited</span>}
+                  <span className="timestamp">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   <div className="msg-actions">
-                    <button className="action-btn" onClick={() => startReply(msg)}><Reply size={16} /></button>
+                    <button onClick={() => { setReplyTo(msg); setEditingId(null); }}><Reply size={14}/></button>
                     {isMe && (
                       <>
-                         {/* Only allow editing text content */}
-                        <button className="action-btn" onClick={() => startEdit(msg)}><Edit size={16} /></button>
-                        <button className="action-btn delete-btn" onClick={() => handleDelete(msg.id)}><Trash2 size={16} /></button>
+                        <button onClick={() => { setEditingId(msg.id); setInputText(msg.content); }}><Edit size={14}/></button>
+                        <button onClick={() => handleDelete(msg.id)} className="delete-icon"><Trash2 size={14}/></button>
                       </>
                     )}
                   </div>
@@ -375,58 +311,37 @@ function App() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       <div className="footer-container">
-        {/* Reply / Edit Banner */}
         {(replyTo || editingId) && (
-          <div className="reply-banner">
-            <div>
-              {editingId ? <strong>Editing Message</strong> : <strong>Replying to {replyTo.username}</strong>}
-            </div>
-            <button className="close-reply" onClick={cancelAction}><X size={16} /></button>
+          <div className="action-banner">
+            <span>{editingId ? "Editing message..." : `Replying to ${replyTo.username}`}</span>
+            <button onClick={cancelAction}><X size={16}/></button>
           </div>
         )}
 
-        {/* Image Preview Banner */}
-        {selectedFile && !editingId && (
+        {selectedFile && (
           <div className="preview-banner">
-            <span style={{ fontSize: '0.9rem' }}><Paperclip size={16} /> {selectedFile.name}</span>
-            <button className="close-reply" onClick={() => setSelectedFile(null)}><X size={16} /></button>
+            <span>📎 {selectedFile.name}</span>
+            <button onClick={() => setSelectedFile(null)}><X size={16}/></button>
           </div>
         )}
 
         <form className="input-form" onSubmit={handleSubmit}>
-          {/* File Input (Hidden) */}
-          <input 
-            type="file" 
-            accept="image/*" 
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-            disabled={!!editingId} // Disable file attach during edit
-          />
-          
-          {/* File Trigger Button */}
+          <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} />
           {!editingId && (
-            <button 
-              type="button" 
-              className="attach-btn" 
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach Image"
-            >
-              <Paperclip size ={18}/>
+            <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()}>
+              <Paperclip size={20}/>
             </button>
           )}
-
-          <textarea
-            className="chat-input"
-            placeholder={editingId ? "Edit text..." : "Type a message..."}
-            value={inputText}
+          <textarea 
+            className="chat-input" 
+            placeholder="Type here..." 
+            value={inputText} 
             onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); }}}
           />
           <button type="submit" className="send-btn" disabled={isUploading}>
-            {/* {isUploading ? '...' : (editingId ? 'Save' : 'Send')} */}
-            <Send size={18}/>
+            {isUploading ? <div className="spinner" /> : <Send size={20}/>}
           </button>
         </form>
       </div>
