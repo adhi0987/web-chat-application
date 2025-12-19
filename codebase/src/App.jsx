@@ -27,6 +27,9 @@ function App() {
   // --- UI States ---
   const [replyTo, setReplyTo] = useState(null)
   const [editingId, setEditingId] = useState(null)
+  const [deleteModal, setDeleteModal] = useState({ open: false, id: null, type: null })
+  const [activeUserList, setActiveUserList] = useState([])
+  const [presenceModalOpen, setPresenceModalOpen] = useState(false)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -46,7 +49,20 @@ function App() {
       })
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState()
-        setActiveUsers(Object.keys(state).length)
+        // extract usernames from various possible presence shapes
+        const values = Object.values(state || {})
+        const names = values.flatMap((v) => {
+          if (!v) return []
+          if (Array.isArray(v)) return v.map(p => p?.user).filter(Boolean)
+          if (typeof v === 'object') {
+            if (v.user) return [v.user]
+            return Object.values(v).flatMap(x => x?.user ? [x.user] : [])
+          }
+          return []
+        })
+        const unique = [...new Set(names)]
+        setActiveUsers(unique.length)
+        setActiveUserList(unique)
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
@@ -166,39 +182,42 @@ function App() {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm("Delete this message permanently?")) return
+    // kept for compatibility but not used directly; modal flow preferred
+    openDeleteModal(id)
+  }
 
+  const openDeleteModal = (id) => setDeleteModal({ open: true, id, type: 'single' })
+  const openDeleteAllModal = () => setDeleteModal({ open: true, id: null, type: 'all' })
+
+  const confirmDelete = async () => {
     try {
-      const msgToDelete = messages.find(m => m.id === id)
-      
-      // FIX: Also delete from Storage if an image exists
-      if (msgToDelete?.image_url) {
-        const urlParts = msgToDelete.image_url.split('/')
-        const fileName = urlParts[urlParts.length - 1]
-        
-        await supabase.storage
-          .from('chat_images')
-          .remove([fileName])
+      if (deleteModal.type === 'single') {
+        const id = deleteModal.id
+        const msgToDelete = messages.find(m => m.id === id)
+        if (msgToDelete?.image_url) {
+          const urlParts = msgToDelete.image_url.split('/')
+          const fileName = urlParts[urlParts.length - 1]
+          await supabase.storage.from('chat_images').remove([fileName])
+        }
+        await supabase.from('messages').delete().eq('id', id)
+        if (replyTo?.id === id) setReplyTo(null)
+        if (editingId === id) cancelAction()
+      } else if (deleteModal.type === 'all') {
+        await supabase.from('messages').delete().neq('id', -1)
       }
-
-      // Delete from DB
-      await supabase.from('messages').delete().eq('id', id)
-
-      // Cleanup local UI states
-      if (replyTo?.id === id) setReplyTo(null)
-      if (editingId === id) cancelAction()
     } catch (err) {
-      console.error("Delete failed:", err)
+      console.error('Delete failed:', err)
+      alert('Delete failed: ' + (err.message || err))
+    } finally {
+      setDeleteModal({ open: false, id: null, type: null })
     }
   }
 
+  const cancelDelete = () => setDeleteModal({ open: false, id: null, type: null })
+
   const deleteAllConversations = async () => {
-    if (!confirm("⚠️ DELETE ALL? This wipes the database and storage records.")) return
-    
-    // Note: This logic only deletes DB rows. In a production app, 
-    // you'd need an Edge Function to loop and delete all storage files.
-    const { error } = await supabase.from('messages').delete().neq('id', -1)
-    if (error) alert("Check RLS policies")
+    // Use modal confirmation instead of prompt
+    openDeleteAllModal()
   }
 
   const cancelAction = () => {
@@ -244,7 +263,7 @@ function App() {
         <div className="header-top">
           <div className="logo-area">
             <h3>Rayabaari</h3>
-            <span className="badge">{activeUsers} Active</span>
+            <span className="badge" onClick={() => setPresenceModalOpen(true)} title="View active users">{activeUsers} Active</span>
           </div>
           <span className="user-tag">{username}</span>
         </div>
@@ -282,7 +301,7 @@ function App() {
                 {msg.reply_to_id && (
                   <div className="reply-quote">
                     <strong>{messages.find(m => m.id === msg.reply_to_id)?.username || 'Unknown'}</strong>
-                    <p>{messages.find(m => m.id === msg.reply_to_id)?.content || '📷 Attachment'}</p>
+                    <p>{messages.find(m => m.id === msg.reply_to_id)?.content || '📷 Photo'}</p>
                   </div>
                 )}
 
@@ -345,6 +364,37 @@ function App() {
           </button>
         </form>
       </div>
+      {deleteModal.open && (
+        <div className="modal-overlay">
+          <div className="confirm-modal">
+            <h4>{deleteModal.type === 'all' ? 'Delete All Conversations?' : 'Delete Message?'}</h4>
+            <p style={{ marginTop: 8 }}>{deleteModal.type === 'all' ? 'This will remove all messages from the database. This action cannot be undone.' : 'Are you sure you want to permanently delete this message?'}</p>
+            <div className="modal-actions">
+              <button onClick={cancelDelete} className="btn">Cancel</button>
+              <button onClick={confirmDelete} className="btn btn-danger">Yes, delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {presenceModalOpen && (
+        <div className="modal-overlay" onClick={() => setPresenceModalOpen(false)}>
+          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <h4>Active Users ({activeUserList.length})</h4>
+            <div className="presence-list">
+              {activeUserList.length === 0 ? (
+                <p style={{ margin: 8 }}>No active users</p>
+              ) : (
+                activeUserList.map((u, i) => (
+                  <div key={i} className="presence-item">{u}</div>
+                ))
+              )}
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setPresenceModalOpen(false)} className="btn">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
