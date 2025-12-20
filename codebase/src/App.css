@@ -433,7 +433,6 @@ mark.search-highlight {
   outline: none;
   font-size: 1rem;
   line-height: 1.4;
-  -webkit-appearance: none;
 }
 
 .attach-btn, .send-btn {
