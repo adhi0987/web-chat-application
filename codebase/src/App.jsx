@@ -1,90 +1,179 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabaseClient'
+import CryptoJS from 'crypto-js'
 import './App.css'
 
 import { 
   Paperclip, Send, Edit, Trash2, Reply, 
-  ChevronUp, ChevronDown, X, Download, Share2, FileText 
+  ChevronUp, ChevronDown, X, Download, Share2, FileText, Plus, ArrowLeft 
 } from 'lucide-react';
+import { use } from 'react';
+
+// Secure key for encryption/decryption
+const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY;
 
 function App() {
+  // --- Navigation & Auth States ---
+  const [view, setView] = useState('login'); // 'login', 'chat', 'room-creator'
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [username, setUsername] = useState('')
+  const [secretCode, setSecretCode] = useState('')
+  const [roomName, setRoomName] = useState('')
+  const [loginError, setLoginError] = useState('')
+
+  // --- Core Data States ---
   const [messages, setMessages] = useState([])
   const [inputText, setInputText] = useState('')
-  const [username, setUsername] = useState('')
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [roomsList, setRoomsList] = useState([])
 
   // --- Search & Stats ---
-  const [activeUsers, setActiveUsers] = useState(0)
   const [searchTerm, setSearchTerm] = useState('')
   const [searchMatches, setSearchMatches] = useState([])
   const [currentMatchIndex, setCurrentMatchIndex] = useState(-1)
+  const [activeUsers, setActiveUsers] = useState(0)
+  const [activeUserList, setActiveUserList] = useState([])
 
-  // --- File Upload ---
+  // --- UI & Interaction States ---
   const [selectedFile, setSelectedFile] = useState(null)
   const [isUploading, setIsUploading] = useState(false)
-  const fileInputRef = useRef(null)
-
-  // --- UI States ---
   const [replyTo, setReplyTo] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [deleteModal, setDeleteModal] = useState({ open: false, id: null, type: null })
-  const [activeUserList, setActiveUserList] = useState([])
   const [presenceModalOpen, setPresenceModalOpen] = useState(false)
+  
+  const fileInputRef = useRef(null)
   const messagesEndRef = useRef(null)
+
+  // --- 1. DEBUGGING & UTILITY HELPERS ---
+  const encryptData = (text) => {
+    if (!text) return '';
+    const cipher = CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();
+    console.log("[DEBUG] Encrypted data:", cipher);
+    return cipher;
+  };
+
+  const decryptData = (cipherText) => {
+    if (!cipherText) return '';
+    try {
+      const bytes = CryptoJS.AES.decrypt(cipherText, ENCRYPTION_KEY);
+      const originalText = bytes.toString(CryptoJS.enc.Utf8);
+      if (!originalText) throw new Error("Decryption returned empty string");
+      return originalText;
+    } catch (e) {
+      console.error("[DEBUG] Decryption failed for:", cipherText, e);
+      return "[Encrypted Content - Decryption Error]";
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
-
-  // --- 1. SETUP & REALTIME ---
   useEffect(() => {
-    if (!isLoggedIn) return;
+    scrollToBottom()
+  }, [messages])
 
-    fetchMessages()
+  // --- 2. AUTHENTICATION (LOGIN) ---
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError("");
+    console.log("[DEBUG] Attempting login with secret code...");
+
+    try {
+      const { data: rooms, error } = await supabase.from('rooms').select('*');
+      if (error) throw error;
+
+      // Find room by matching decrypted secret code
+      const matchedRoom = rooms.find(r => {
+        const decryptedStored = decryptData(r.secret_code);
+        return decryptedStored === secretCode || r.secret_code === secretCode;
+      });
+
+      if (matchedRoom) {
+        console.log("[DEBUG] Login successful. Room:", matchedRoom.room_name);
+        setRoomName(matchedRoom.room_name);
+        setIsLoggedIn(true);
+        setView('chat');
+      } else {
+        setLoginError("Invalid Secret Code.");
+      }
+    } catch (err) {
+      console.error("[DEBUG] Auth error:", err);
+      setLoginError("Connection failed.");
+    }
+  };
+
+  // --- 3. DATA FETCHING & REAL-TIME ---
+  useEffect(() => {
+    if (!isLoggedIn || view !== 'chat') return;
+
+    console.log("[DEBUG] Initializing chat for room:", roomName);
+    fetchMessages();
 
     const channel = supabase
-      .channel('public:messages')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload) => {
-        handleRealtimeEvent(payload)
+      .channel(`messages-room`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'messages',
+        filter: `room_secret_code=eq.${secretCode}` 
+      }, (payload) => {
+        console.log("[DEBUG] Real-time payload received:", payload.eventType);
+        handleRealtimeEvent(payload);
       })
       .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState()
-        const values = Object.values(state || {})
-        const names = values.flatMap((v) => {
-          if (!v) return []
-          if (Array.isArray(v)) return v.map(p => p?.user).filter(Boolean)
-          if (typeof v === 'object') {
-            if (v.user) return [v.user]
-            return Object.values(v).flatMap(x => x?.user ? [x.user] : [])
-          }
-          return []
-        })
-        const unique = [...new Set(names)]
-        setActiveUsers(unique.length)
-        setActiveUserList(unique)
+        const state = channel.presenceState();
+        const names = Object.values(state || {}).flatMap(v => v.map(p => p.user)).filter(Boolean);
+        const unique = [...new Set(names)];
+        setActiveUsers(unique.length);
+        setActiveUserList(unique);
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await channel.track({ user: username, online_at: new Date().toISOString() })
+          console.log("[DEBUG] Subscribed to real-time updates.");
+          await channel.track({ user: username, online_at: new Date().toISOString() });
         }
-      })
+      });
 
-    return () => { supabase.removeChannel(channel) }
-  }, [isLoggedIn])
+    return () => { 
+      console.log("[DEBUG] Unsubscribing from channel.");
+      supabase.removeChannel(channel); 
+    };
+  }, [isLoggedIn, view,secretCode]);
 
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    if (!editingId && !replyTo && !searchTerm) {
-      scrollToBottom()
+  const fetchMessages = async () => {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('room_secret_code', secretCode)
+      .order('created_at', { ascending: true });
+    
+    if (error) {
+      console.error("[DEBUG] Fetch error:", error);
+    } else {
+      const decrypted = data.map(msg => ({
+        ...msg,
+        content: decryptData(msg.content)
+      }));
+      setMessages(decrypted);
     }
-  }, [messages.length])
+  };
 
-  // --- 2. SEARCH LOGIC ---
+  const handleRealtimeEvent = (payload) => {
+    const { eventType, new: newRow, old: oldRow } = payload;
+    setMessages((prev) => {
+      if (eventType === 'INSERT') return [...prev, { ...newRow, content: decryptData(newRow.content) }];
+      if (eventType === 'UPDATE') return prev.map(m => m.id === newRow.id ? { ...newRow, content: decryptData(newRow.content) } : m);
+      if (eventType === 'DELETE') return prev.filter(m => m.id !== oldRow.id);
+      return prev;
+    });
+  };
+
+  // --- 4. SEARCH LOGIC ---
   useEffect(() => {
     if (!searchTerm.trim()) {
-      setSearchMatches([])
-      setCurrentMatchIndex(-1)
-      return
+      setSearchMatches([]);
+      setCurrentMatchIndex(-1);
+      return;
     }
 
     const matches = messages
@@ -92,216 +181,170 @@ function App() {
         (msg.content || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         msg.username.toLowerCase().includes(searchTerm.toLowerCase())
       )
-      .map(msg => msg.id)
+      .map(msg => msg.id);
 
-    setSearchMatches(matches)
-    setCurrentMatchIndex(matches.length > 0 ? 0 : -1)
-  }, [searchTerm, messages])
+    setSearchMatches(matches);
+    setCurrentMatchIndex(matches.length > 0 ? 0 : -1);
+  }, [searchTerm, messages]);
 
   useEffect(() => {
     if (currentMatchIndex >= 0 && searchMatches.length > 0) {
-      const matchId = searchMatches[currentMatchIndex]
-      document.getElementById(`msg-${matchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const matchId = searchMatches[currentMatchIndex];
+      document.getElementById(`msg-${matchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [currentMatchIndex])
+  }, [currentMatchIndex]);
 
-  // --- 3. DATA HANDLERS ---
-  const fetchMessages = async () => {
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .order('created_at', { ascending: true })
-    if (error) console.error('Error:', error)
-    else setMessages(data)
-  }
-
-  const handleRealtimeEvent = (payload) => {
-    const { eventType, new: newRow, old: oldRow } = payload
-    setMessages((prev) => {
-      if (eventType === 'INSERT') return [...prev, newRow]
-      if (eventType === 'UPDATE') return prev.map(msg => (msg.id === newRow.id ? newRow : msg))
-      if (eventType === 'DELETE') return prev.filter(msg => msg.id !== oldRow.id)
-      return prev
-    })
-  }
-
-  // --- 4. ACTIONS (SUBMIT, SHARE, DOWNLOAD) ---
-
-  const handleFileSelect = (e) => {
-    if (e.target.files?.[0]) {
-      setSelectedFile(e.target.files[0])
-    }
-  }
-
+  // --- 5. CHAT ACTIONS (SUBMIT, DELETE, ADMIN) ---
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!inputText.trim() && !selectedFile) return
+    e.preventDefault();
+    if (!inputText.trim() && !selectedFile) return;
+
+    // Redirection Trigger
+    if (inputText.trim() === "new room creator page") {
+      console.log("[DEBUG] Triggering admin view redirect.");
+      setInputText('');
+      fetchRoomsForAdmin();
+      setView('room-creator');
+      return;
+    }
 
     if (editingId) {
-      await supabase.from('messages').update({ content: inputText, is_edited: true }).eq('id', editingId)
-      cancelAction()
-      return
+      await supabase.from('messages')
+        .update({ content: encryptData(inputText), is_edited: true })
+        .eq('id', editingId);
+      cancelAction();
+      return;
     }
 
-    let fileUrl = null
-
+    let fileUrl = null;
     if (selectedFile) {
-      setIsUploading(true)
+      setIsUploading(true);
       try {
-        const fileExt = selectedFile.name.split('.').pop().toLowerCase()
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
-        
-        // Determine correct bucket
-        let bucket = 'chat_images'
-        if (selectedFile.type.startsWith('video/')) bucket = 'chat_videos'
-        else if (selectedFile.type === 'application/pdf') bucket = 'chat_pdfs'
-
-        const { error: uploadError } = await supabase.storage
-          .from(bucket)
-          .upload(fileName, selectedFile)
-
-        if (uploadError) throw uploadError
-
-        const { data } = supabase.storage.from(bucket).getPublicUrl(fileName)
-        fileUrl = data.publicUrl
-      } catch (error) {
-        alert('Upload failed: ' + error.message)
-        setIsUploading(false)
-        return
-      }
-      setIsUploading(false)
+        const fileName = `${Date.now()}_${selectedFile.name.replace(/\s/g, '_')}`;
+        const bucket = selectedFile.type.startsWith('video/') ? 'chat_videos' : 
+                       selectedFile.type === 'application/pdf' ? 'chat_pdfs' : 'chat_images';
+        await supabase.storage.from(bucket).upload(fileName, selectedFile);
+        const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
+        fileUrl = data.publicUrl;
+      } catch (err) { alert('Upload failed'); }
+      setIsUploading(false);
     }
 
     const { error } = await supabase.from('messages').insert([{ 
       username, 
-      content: inputText, 
+      content: encryptData(inputText), 
+      room_secret_code: secretCode,
       reply_to_id: replyTo?.id || null,
-      image_url: fileUrl // reusing column as generic file_url
-    }])
+      image_url: fileUrl 
+    }]);
 
-    if (!error) cancelAction()
-  }
+    if (!error) cancelAction();
+  };
 
-  const handleDownload = async (url, originalName) => {
-    try {
-      const response = await fetch(url)
-      const blob = await response.blob()
-      const blobUrl = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.download = originalName || 'downloaded-file'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(blobUrl)
-    } catch (err) { alert("Download failed") }
-  }
-
-  const handleShare = (url) => {
-    navigator.clipboard.writeText(url)
-    alert("Link copied to clipboard!")
-  }
-
-  const handleDelete = (id) => setDeleteModal({ open: true, id, type: 'single' })
-  
   const confirmDelete = async () => {
     try {
       if (deleteModal.type === 'single') {
-        const id = deleteModal.id
-        const msgToDelete = messages.find(m => m.id === id)
-        if (msgToDelete?.image_url) {
-          const url = msgToDelete.image_url
-          const bucket = url.includes('chat_videos') ? 'chat_videos' : url.includes('chat_pdfs') ? 'chat_pdfs' : 'chat_images'
-          const fileName = url.split('/').pop()
-          await supabase.storage.from(bucket).remove([fileName])
+        const msg = messages.find(m => m.id === deleteModal.id);
+        if (msg?.image_url) {
+          const url = msg.image_url;
+          const bucket = url.includes('chat_videos') ? 'chat_videos' : url.includes('chat_pdfs') ? 'chat_pdfs' : 'chat_images';
+          const fileName = url.split('/').pop();
+          await supabase.storage.from(bucket).remove([fileName]);
         }
-        await supabase.from('messages').delete().eq('id', id)
-        
-        // Restore: Reset states if deleted message was being replied to or edited
-        if (replyTo?.id === id) setReplyTo(null)
-        if (editingId === id) cancelAction()
-      } else if (deleteModal.type === 'all') {
-        await supabase.from('messages').delete().neq('id', -1)
+        await supabase.from('messages').delete().eq('id', deleteModal.id);
+      } else {
+        await supabase.from('messages').delete().eq('room_secret_code', secretCode);
       }
-    } catch (err) {
-      console.error('Delete failed:', err)
-    } finally {
-      setDeleteModal({ open: false, id: null, type: null })
-    }
-  }
+    } catch (err) { console.error("Delete error:", err); }
+    finally { setDeleteModal({ open: false, id: null, type: null }); }
+  };
 
   const cancelAction = () => {
-    setReplyTo(null)
-    setEditingId(null)
-    setInputText('')
-    setSelectedFile(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
+    setReplyTo(null);
+    setEditingId(null);
+    setInputText('');
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
-  // --- 5. RENDER HELPERS ---
+  const fetchRoomsForAdmin = async () => {
+    const { data } = await supabase.from('rooms').select('*');
+    if (data) {
+      setRoomsList(data.map(r => ({
+        ...r,
+        secret_code: decryptData(r.secret_code)
+      })));
+    }
+  };
+
+  const createNewRoom = async (e) => {
+    e.preventDefault();
+    const name = e.target.roomName.value;
+    const code = e.target.roomCode.value;
+    const { error } = await supabase.from('rooms').insert([{
+      room_name: name,
+      secret_code: encryptData(code)
+    }]);
+    if (!error) { e.target.reset(); fetchRoomsForAdmin(); }
+  };
+
+  // --- 6. RENDER HELPERS ---
   const highlightText = (text) => {
-    if (!text || !searchTerm.trim()) return text
-    const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'))
+    if (!text || !searchTerm.trim()) return text;
+    const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'));
     return parts.map((part, i) => 
       part.toLowerCase() === searchTerm.toLowerCase() 
-        ? <mark key={i} className="search-highlight">{part}</mark> : part
-    )
-  }
+        ? <mark key={i} style={{backgroundColor: '#ffd700', borderRadius: '2px'}}>{part}</mark> : part
+    );
+  };
 
-  const renderMedia = (url) => {
-    if (!url) return null
-    const ext = url.split('.').pop().toLowerCase()
-    
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
-      return (
-        <div className="media-container">
-          <img src={url} alt="Shared" className="chat-image" />
-          <div className="media-overlay">
-            <button onClick={() => handleDownload(url, `img-${Date.now()}.${ext}`)}><Download size={16}/></button>
-            <button onClick={() => handleShare(url)}><Share2 size={16}/></button>
-          </div>
-        </div>
-      )
-    }
-    
-    if (['mp4', 'webm', 'mov'].includes(ext)) {
-      return (
-        <div className="media-container">
-          <video src={url} controls className="chat-video" />
-          <div className="media-overlay always-visible">
-            <button onClick={() => handleDownload(url, `vid-${Date.now()}.${ext}`)}><Download size={16}/></button>
-            <button onClick={() => handleShare(url)}><Share2 size={16}/></button>
-          </div>
-        </div>
-      )
-    }
+  // --- 7. VIEWS ---
 
-    if (ext === 'pdf') {
-      return (
-        <div className="pdf-attachment">
-          <div className="pdf-info"><FileText size={24} color="#f40f0f" /><span>Document.pdf</span></div>
-          <div className="pdf-actions">
-            <button onClick={() => window.open(url, '_blank')}>View</button>
-            <button onClick={() => handleDownload(url, 'document.pdf')}><Download size={16}/></button>
-            <button onClick={() => handleShare(url)}><Share2 size={16}/></button>
-          </div>
-        </div>
-      )
-    }
-    return <a href={url} target="_blank" rel="noreferrer">File Attachment</a>
-  }
-
-  // --- 6. UI RENDER ---
-  if (!isLoggedIn) {
+  if (view === 'login') {
     return (
       <div className="login-container">
-        <div className="login-card">
-          <h2 style={{ color: '#008069' }}>Rayabaari Chat</h2>
-          <input type="text" className="login-input" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <button className="login-btn" onClick={() => username && setIsLoggedIn(true)}>Join Room</button>
-        </div>
+        <form className="login-card" onSubmit={handleLogin}>
+          <h2 style={{ color: '#008069' }}>Rayabaari Secure Chat</h2>
+          <input required type="text" className="login-input" placeholder="Display Name" value={username} onChange={(e) => setUsername(e.target.value)} />
+          <input required type="password" className="login-input" placeholder="Secret Access Code" value={secretCode} onChange={(e) => setSecretCode(e.target.value)} />
+          {loginError && <p style={{color: '#ff4d4d', fontSize: '13px', margin: '10px 0'}}>{loginError}</p>}
+          <button type="submit" className="login-btn">Join Conversation</button>
+        </form>
       </div>
-    )
+    );
+  }
+
+  if (view === 'room-creator') {
+    return (
+      <div className="admin-container" style={{padding: '20px', maxWidth: '800px', margin: '0 auto'}}>
+        <header className="chat-header" style={{borderRadius: '10px', marginBottom: '20px'}}>
+           <div className="header-top">
+              <button className="back-btn" onClick={() => setView('chat')} style={{background: 'none', border: 'none', color: 'white', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'}}>
+                <ArrowLeft size={18}/> Back to Chat
+              </button>
+              <h3>Admin Management</h3>
+           </div>
+        </header>
+        <form className="add-room-form" onSubmit={createNewRoom} style={{display: 'flex', gap: '10px', marginBottom: '30px'}}>
+          <input name="roomName" className="login-input" placeholder="Room Name" required style={{flex: 1}} />
+          <input name="roomCode" className="login-input" placeholder="New Secret Code" required style={{flex: 1}} />
+          <button type="submit" className="login-btn" style={{padding: '0 25px'}}><Plus size={18}/></button>
+        </form>
+        <table style={{width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: '8px', overflow: 'hidden'}}>
+          <thead style={{background: '#008069', color: 'white'}}>
+            <tr><th style={{padding: '12px', textAlign: 'left'}}>Room Name</th><th style={{padding: '12px', textAlign: 'left'}}>Decrypted Code</th></tr>
+          </thead>
+          <tbody>
+            {roomsList.map((r, i) => (
+              <tr key={i} style={{borderBottom: '1px solid #eee'}}>
+                <td style={{padding: '12px'}}>{r.room_name}</td>
+                <td style={{padding: '12px', fontFamily: 'monospace'}}>{r.secret_code}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
   }
 
   return (
@@ -309,15 +352,15 @@ function App() {
       <header className="chat-header">
         <div className="header-top">
           <div className="logo-area">
-            <h3>Rayabaari</h3>
-            <span className="badge" onClick={() => setPresenceModalOpen(true)} title="View active users">{activeUsers} Active</span>
+            <h3 style={{textTransform: 'capitalize'}}>{roomName}</h3>
+            <span className="badge" onClick={() => setPresenceModalOpen(true)}>{activeUsers} Active</span>
           </div>
           <span className="user-tag">{username}</span>
         </div>
 
         <div className="toolbar">
           <div className="search-box">
-            <input type="text" placeholder="Search chat..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             {searchTerm && <span className="search-count">{searchMatches.length > 0 ? `${currentMatchIndex + 1}/${searchMatches.length}` : '0/0'}</span>}
           </div>
           <button onClick={() => setCurrentMatchIndex(p => (p - 1 + searchMatches.length) % searchMatches.length)} disabled={!searchMatches.length}><ChevronUp size={18}/></button>
@@ -340,24 +383,27 @@ function App() {
                   </div>
                 )}
                 {!isMe && <span className="sender-name">{msg.username}</span>}
-                {renderMedia(msg.image_url)}
+                {msg.image_url && (
+                   <div className="media-preview">
+                     {msg.image_url.includes('.pdf') ? <div className="pdf-attachment"><FileText size={20}/><span>Document</span></div> : <img src={msg.image_url} className="chat-image" alt="shared" />}
+                   </div>
+                )}
                 {msg.content && <div className="text-content">{highlightText(msg.content)}</div>}
                 <div className="bubble-footer">
-                  {msg.is_edited && <span className="edited-tag">edited</span>}
                   <span className="timestamp">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   <div className="msg-actions">
-                    <button onClick={() => { setReplyTo(msg); setEditingId(null); }}><Reply size={14}/></button>
+                    <button onClick={() => setReplyTo(msg)}><Reply size={14}/></button>
                     {isMe && (
                       <>
                         <button onClick={() => { setEditingId(msg.id); setInputText(msg.content); }}><Edit size={14}/></button>
-                        <button onClick={() => handleDelete(msg.id)} className="delete-icon"><Trash2 size={14}/></button>
+                        <button onClick={() => setDeleteModal({ open: true, id: msg.id, type: 'single' })} className="delete-icon"><Trash2 size={14}/></button>
                       </>
                     )}
                   </div>
                 </div>
               </div>
             </div>
-          )
+          );
         })}
         <div ref={messagesEndRef} />
       </div>
@@ -365,31 +411,20 @@ function App() {
       <div className="footer-container">
         {(replyTo || editingId) && (
           <div className="action-banner">
-            <span>{editingId ? "Editing message..." : `Replying to ${replyTo.username}`}</span>
+            <span>{editingId ? "Editing..." : `Replying to ${replyTo.username}`}</span>
             <button onClick={cancelAction}><X size={16}/></button>
           </div>
         )}
-        {selectedFile && (
-          <div className="preview-banner">
-            <span>📎 {selectedFile.name}</span>
-            <button onClick={() => setSelectedFile(null)}><X size={16}/></button>
-          </div>
-        )}
+        {selectedFile && <div className="preview-banner"><span>📎 {selectedFile.name}</span><button onClick={() => setSelectedFile(null)}><X size={16}/></button></div>}
         <form className="input-form" onSubmit={handleSubmit}>
-          <input type="file" accept="image/*,video/*,application/pdf" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} />
-          {!editingId && (
-            <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()}><Paperclip size={20}/></button>
-          )}
+          <input type="file" ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files[0])} style={{ display: 'none' }} />
+          <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()}><Paperclip size={20}/></button>
           <textarea 
             className="chat-input" 
             placeholder="Type here..." 
             value={inputText} 
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); }}}
-            onFocus={() => setTimeout(scrollToBottom, 300)}
-            inputMode="text"
-            autoCorrect="on"
-            autoComplete="off"
           />
           <button type="submit" className="send-btn" disabled={isUploading}>
             {isUploading ? <div className="spinner" /> : <Send size={20}/>}
@@ -400,10 +435,10 @@ function App() {
       {deleteModal.open && (
         <div className="modal-overlay">
           <div className="confirm-modal">
-            <h4>{deleteModal.type === 'all' ? 'Delete All Conversations?' : 'Delete Message?'}</h4>
+            <h4>{deleteModal.type === 'all' ? 'Delete Room Chat?' : 'Delete Message?'}</h4>
             <div className="modal-actions">
               <button onClick={() => setDeleteModal({ open: false, id: null, type: null })} className="btn">Cancel</button>
-              <button onClick={confirmDelete} className="btn btn-danger">Yes, delete</button>
+              <button onClick={confirmDelete} className="btn btn-danger">Confirm</button>
             </div>
           </div>
         </div>
@@ -412,15 +447,14 @@ function App() {
       {presenceModalOpen && (
         <div className="modal-overlay" onClick={() => setPresenceModalOpen(false)}>
           <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
-            <h4>Active Users ({activeUserList.length})</h4>
-            <div className="presence-list">
-              {activeUserList.length === 0 ? <p>No active users</p> : activeUserList.map((u, i) => <div key={i} className="presence-item">{u}</div>)}
-            </div>
+            <h4>Online ({activeUserList.length})</h4>
+            <div className="presence-list">{activeUserList.map((u, i) => <div key={i} className="presence-item">{u}</div>)}</div>
             <div className="modal-actions"><button onClick={() => setPresenceModalOpen(false)} className="btn">Close</button></div>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
-export default App
+
+export default App;
