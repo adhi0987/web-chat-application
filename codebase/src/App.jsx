@@ -5,9 +5,8 @@ import './App.css'
 
 import { 
   Paperclip, Send, Edit, Trash2, Reply, 
-  ChevronUp, ChevronDown, X, Download, Share2, FileText, Plus, ArrowLeft 
+  ChevronUp, ChevronDown, X, Download, FileText, Plus, ArrowLeft, PlayCircle 
 } from 'lucide-react';
-import { use } from 'react';
 
 // Secure key for encryption/decryption
 const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY;
@@ -47,9 +46,12 @@ function App() {
   // --- 1. DEBUGGING & UTILITY HELPERS ---
   const encryptData = (text) => {
     if (!text) return '';
-    const cipher = CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();
-    console.log("[DEBUG] Encrypted data:", cipher);
-    return cipher;
+    try {
+      return CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();
+    } catch (e) {
+      console.error("Encryption error:", e);
+      return text;
+    }
   };
 
   const decryptData = (cipherText) => {
@@ -60,8 +62,7 @@ function App() {
       if (!originalText) throw new Error("Decryption returned empty string");
       return originalText;
     } catch (e) {
-      console.error("[DEBUG] Decryption failed for:", cipherText, e);
-      return "[Encrypted Content - Decryption Error]";
+      return "[Encrypted Content]";
     }
   };
 
@@ -69,27 +70,24 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
   useEffect(() => {
-    scrollToBottom()
+    if (messages.length > 0) scrollToBottom();
   }, [messages])
 
   // --- 2. AUTHENTICATION (LOGIN) ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
-    console.log("[DEBUG] Attempting login with secret code...");
 
     try {
       const { data: rooms, error } = await supabase.from('rooms').select('*');
       if (error) throw error;
 
-      // Find room by matching decrypted secret code
       const matchedRoom = rooms.find(r => {
         const decryptedStored = decryptData(r.secret_code);
         return decryptedStored === secretCode || r.secret_code === secretCode;
       });
 
       if (matchedRoom) {
-        console.log("[DEBUG] Login successful. Room:", matchedRoom.room_name);
         setRoomName(matchedRoom.room_name);
         setIsLoggedIn(true);
         setView('chat');
@@ -97,7 +95,6 @@ function App() {
         setLoginError("Invalid Secret Code.");
       }
     } catch (err) {
-      console.error("[DEBUG] Auth error:", err);
       setLoginError("Connection failed.");
     }
   };
@@ -106,18 +103,17 @@ function App() {
   useEffect(() => {
     if (!isLoggedIn || view !== 'chat') return;
 
-    console.log("[DEBUG] Initializing chat for room:", roomName);
     fetchMessages();
 
+    // Use unique channel per secret code for better isolation
     const channel = supabase
-      .channel(`messages-room`)
+      .channel(`room-${secretCode.substring(0, 8)}`)
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
         table: 'messages',
         filter: `room_secret_code=eq.${secretCode}` 
       }, (payload) => {
-        console.log("[DEBUG] Real-time payload received:", payload.eventType);
         handleRealtimeEvent(payload);
       })
       .on('presence', { event: 'sync' }, () => {
@@ -129,16 +125,14 @@ function App() {
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          console.log("[DEBUG] Subscribed to real-time updates.");
           await channel.track({ user: username, online_at: new Date().toISOString() });
         }
       });
 
     return () => { 
-      console.log("[DEBUG] Unsubscribing from channel.");
       supabase.removeChannel(channel); 
     };
-  }, [isLoggedIn, view,secretCode]);
+  }, [isLoggedIn, view, secretCode]);
 
   const fetchMessages = async () => {
     const { data, error } = await supabase
@@ -147,9 +141,7 @@ function App() {
       .eq('room_secret_code', secretCode)
       .order('created_at', { ascending: true });
     
-    if (error) {
-      console.error("[DEBUG] Fetch error:", error);
-    } else {
+    if (!error) {
       const decrypted = data.map(msg => ({
         ...msg,
         content: decryptData(msg.content)
@@ -161,9 +153,17 @@ function App() {
   const handleRealtimeEvent = (payload) => {
     const { eventType, new: newRow, old: oldRow } = payload;
     setMessages((prev) => {
-      if (eventType === 'INSERT') return [...prev, { ...newRow, content: decryptData(newRow.content) }];
-      if (eventType === 'UPDATE') return prev.map(m => m.id === newRow.id ? { ...newRow, content: decryptData(newRow.content) } : m);
-      if (eventType === 'DELETE') return prev.filter(m => m.id !== oldRow.id);
+      if (eventType === 'INSERT') {
+        const exists = prev.find(m => m.id === newRow.id);
+        if (exists) return prev;
+        return [...prev, { ...newRow, content: decryptData(newRow.content) }];
+      }
+      if (eventType === 'UPDATE') {
+        return prev.map(m => m.id === newRow.id ? { ...newRow, content: decryptData(newRow.content) } : m);
+      }
+      if (eventType === 'DELETE') {
+        return prev.filter(m => m.id !== oldRow.id);
+      }
       return prev;
     });
   };
@@ -194,14 +194,13 @@ function App() {
     }
   }, [currentMatchIndex]);
 
-  // --- 5. CHAT ACTIONS (SUBMIT, DELETE, ADMIN) ---
+  // --- 5. CHAT ACTIONS ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!inputText.trim() && !selectedFile) return;
 
-    // Redirection Trigger
+    // Redirection Trigger for Admin
     if (inputText.trim() === "new room creator page") {
-      console.log("[DEBUG] Triggering admin view redirect.");
       setInputText('');
       fetchRoomsForAdmin();
       setView('room-creator');
@@ -220,13 +219,21 @@ function App() {
     if (selectedFile) {
       setIsUploading(true);
       try {
-        const fileName = `${Date.now()}_${selectedFile.name.replace(/\s/g, '_')}`;
-        const bucket = selectedFile.type.startsWith('video/') ? 'chat_videos' : 
-                       selectedFile.type === 'application/pdf' ? 'chat_pdfs' : 'chat_images';
-        await supabase.storage.from(bucket).upload(fileName, selectedFile);
+        const fileExt = selectedFile.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        
+        let bucket = 'chat_images';
+        if (selectedFile.type.startsWith('video/')) bucket = 'chat_videos';
+        else if (selectedFile.type === 'application/pdf') bucket = 'chat_pdfs';
+        
+        const { error: uploadError } = await supabase.storage.from(bucket).upload(fileName, selectedFile);
+        if (uploadError) throw uploadError;
+
         const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
         fileUrl = data.publicUrl;
-      } catch (err) { alert('Upload failed'); }
+      } catch (err) { 
+        alert('Upload failed: ' + err.message); 
+      }
       setIsUploading(false);
     }
 
@@ -298,6 +305,42 @@ function App() {
     );
   };
 
+  const renderMedia = (url) => {
+    if (!url) return null;
+    const isVideo = url.toLowerCase().match(/\.(mp4|webm|ogg)$/);
+    const isPdf = url.toLowerCase().endsWith('.pdf');
+
+    return (
+      <div className="media-preview">
+        {isVideo ? (
+          <div className="video-container">
+            <video controls className="chat-video">
+              <source src={url} />
+            </video>
+            <a href={url} target="_blank" download className="media-download-btn">
+              <Download size={14} /> Download Video
+            </a>
+          </div>
+        ) : isPdf ? (
+          <div className="file-attachment pdf">
+            <FileText size={24} />
+            <div className="file-info">
+              <span>Document.pdf</span>
+              <a href={url} target="_blank" rel="noreferrer">View / Download</a>
+            </div>
+          </div>
+        ) : (
+          <div className="image-container">
+            <img src={url} className="chat-image" alt="shared" loading="lazy" />
+            <a href={url} target="_blank" download className="image-overlay-btn">
+              <Download size={16} />
+            </a>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // --- 7. VIEWS ---
 
   if (view === 'login') {
@@ -353,7 +396,7 @@ function App() {
         <div className="header-top">
           <div className="logo-area">
             <h3 style={{textTransform: 'capitalize'}}>{roomName}</h3>
-            <span className="badge" onClick={() => setPresenceModalOpen(true)}>{activeUsers} Active</span>
+            <span className="badge" onClick={() => setPresenceModalOpen(true)}>{activeUsers} Online</span>
           </div>
           <span className="user-tag">{username}</span>
         </div>
@@ -365,7 +408,7 @@ function App() {
           </div>
           <button onClick={() => setCurrentMatchIndex(p => (p - 1 + searchMatches.length) % searchMatches.length)} disabled={!searchMatches.length}><ChevronUp size={18}/></button>
           <button onClick={() => setCurrentMatchIndex(p => (p + 1) % searchMatches.length)} disabled={!searchMatches.length}><ChevronDown size={18}/></button>
-          <button className="danger-btn" onClick={() => setDeleteModal({ open: true, id: null, type: 'all' })}><Trash2 size={18}/></button>
+          <button className="danger-btn" onClick={() => setDeleteModal({ open: true, id: null, type: 'all' })} title="Clear Room History"><Trash2 size={18}/></button>
         </div>
       </header>
 
@@ -378,25 +421,24 @@ function App() {
               <div className={`bubble ${isMatch ? 'highlight-bubble' : ''}`}>
                 {msg.reply_to_id && (
                   <div className="reply-quote">
-                    <strong>{messages.find(m => m.id === msg.reply_to_id)?.username || 'Unknown'}</strong>
+                    <strong>{messages.find(m => m.id === msg.reply_to_id)?.username || 'User'}</strong>
                     <p>{messages.find(m => m.id === msg.reply_to_id)?.content || '📎 Attachment'}</p>
                   </div>
                 )}
                 {!isMe && <span className="sender-name">{msg.username}</span>}
-                {msg.image_url && (
-                   <div className="media-preview">
-                     {msg.image_url.includes('.pdf') ? <div className="pdf-attachment"><FileText size={20}/><span>Document</span></div> : <img src={msg.image_url} className="chat-image" alt="shared" />}
-                   </div>
-                )}
+                
+                {renderMedia(msg.image_url)}
+
                 {msg.content && <div className="text-content">{highlightText(msg.content)}</div>}
+                
                 <div className="bubble-footer">
                   <span className="timestamp">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   <div className="msg-actions">
-                    <button onClick={() => setReplyTo(msg)}><Reply size={14}/></button>
+                    <button onClick={() => setReplyTo(msg)} title="Reply"><Reply size={14}/></button>
                     {isMe && (
                       <>
-                        <button onClick={() => { setEditingId(msg.id); setInputText(msg.content); }}><Edit size={14}/></button>
-                        <button onClick={() => setDeleteModal({ open: true, id: msg.id, type: 'single' })} className="delete-icon"><Trash2 size={14}/></button>
+                        <button onClick={() => { setEditingId(msg.id); setInputText(msg.content); }} title="Edit"><Edit size={14}/></button>
+                        <button onClick={() => setDeleteModal({ open: true, id: msg.id, type: 'single' })} className="delete-icon" title="Delete"><Trash2 size={14}/></button>
                       </>
                     )}
                   </div>
@@ -411,17 +453,22 @@ function App() {
       <div className="footer-container">
         {(replyTo || editingId) && (
           <div className="action-banner">
-            <span>{editingId ? "Editing..." : `Replying to ${replyTo.username}`}</span>
+            <span>{editingId ? "Editing Message..." : `Replying to ${replyTo.username}`}</span>
             <button onClick={cancelAction}><X size={16}/></button>
           </div>
         )}
-        {selectedFile && <div className="preview-banner"><span>📎 {selectedFile.name}</span><button onClick={() => setSelectedFile(null)}><X size={16}/></button></div>}
+        {selectedFile && (
+          <div className="preview-banner">
+            <span>📎 {selectedFile.name} ({(selectedFile.size/1024).toFixed(1)} KB)</span>
+            <button onClick={() => setSelectedFile(null)}><X size={16}/></button>
+          </div>
+        )}
         <form className="input-form" onSubmit={handleSubmit}>
           <input type="file" ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files[0])} style={{ display: 'none' }} />
           <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()}><Paperclip size={20}/></button>
           <textarea 
             className="chat-input" 
-            placeholder="Type here..." 
+            placeholder="Type a message..." 
             value={inputText} 
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); }}}
@@ -435,10 +482,10 @@ function App() {
       {deleteModal.open && (
         <div className="modal-overlay">
           <div className="confirm-modal">
-            <h4>{deleteModal.type === 'all' ? 'Delete Room Chat?' : 'Delete Message?'}</h4>
+            <h4>{deleteModal.type === 'all' ? 'Clear all messages?' : 'Delete this message?'}</h4>
             <div className="modal-actions">
               <button onClick={() => setDeleteModal({ open: false, id: null, type: null })} className="btn">Cancel</button>
-              <button onClick={confirmDelete} className="btn btn-danger">Confirm</button>
+              <button onClick={confirmDelete} className="btn btn-danger">Delete</button>
             </div>
           </div>
         </div>

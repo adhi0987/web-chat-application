@@ -520,3 +520,49 @@ body {
   .msg-actions { opacity: 1; }
   .chat-input { font-size: 16px; }
 }
+
+.chat-video {
+  max-width: 100%;
+  border-radius: 8px;
+  background: #000;
+  max-height: 300px;
+}
+
+.media-download-btn {
+  display: block;
+  font-size: 12px;
+  color: #008069;
+  text-decoration: none;
+  margin-top: 5px;
+  text-align: center;
+}
+
+.file-attachment {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: #f0f2f5;
+  border-radius: 8px;
+  border-left: 4px solid #008069;
+}
+
+.image-container {
+  position: relative;
+}
+
+.image-overlay-btn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: rgba(0,0,0,0.5);
+  color: white;
+  padding: 5px;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.image-container:hover .image-overlay-btn {
+  opacity: 1;
+}
