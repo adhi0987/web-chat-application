@@ -29,7 +29,7 @@ function App() {
   const [editingId, setEditingId] = useState(null)
   const [deleteModal, setDeleteModal] = useState({ open: false, id: null, type: null })
   const [activeUserList, setActiveUserList] = useState([])
-  const [presenceModalOpen, setPresenceModalOpen] = useState(false) // RESTORED
+  const [presenceModalOpen, setPresenceModalOpen] = useState(false)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -72,30 +72,47 @@ function App() {
     return () => { supabase.removeChannel(channel) }
   }, [isLoggedIn])
 
+  // Scroll to bottom on new messages
   useEffect(() => {
-    if (!editingId && !replyTo && !searchTerm) scrollToBottom()
+    if (!editingId && !replyTo && !searchTerm) {
+      scrollToBottom()
+    }
   }, [messages.length])
 
-  // --- 2. SEARCH & DATA ---
+  // --- 2. SEARCH LOGIC ---
   useEffect(() => {
     if (!searchTerm.trim()) {
       setSearchMatches([])
       setCurrentMatchIndex(-1)
       return
     }
+
     const matches = messages
       .filter(msg => 
         (msg.content || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         msg.username.toLowerCase().includes(searchTerm.toLowerCase())
       )
       .map(msg => msg.id)
+
     setSearchMatches(matches)
     setCurrentMatchIndex(matches.length > 0 ? 0 : -1)
   }, [searchTerm, messages])
 
+  useEffect(() => {
+    if (currentMatchIndex >= 0 && searchMatches.length > 0) {
+      const matchId = searchMatches[currentMatchIndex]
+      document.getElementById(`msg-${matchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [currentMatchIndex])
+
+  // --- 3. DATA HANDLERS ---
   const fetchMessages = async () => {
-    const { data, error } = await supabase.from('messages').select('*').order('created_at', { ascending: true })
-    if (!error) setMessages(data)
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: true })
+    if (error) console.error('Error:', error)
+    else setMessages(data)
   }
 
   const handleRealtimeEvent = (payload) => {
@@ -108,9 +125,12 @@ function App() {
     })
   }
 
-  // --- 3. ACTIONS (UPLOAD, SHARE, DOWNLOAD) ---
+  // --- 4. ACTIONS (SUBMIT, SHARE, DOWNLOAD) ---
+
   const handleFileSelect = (e) => {
-    if (e.target.files?.[0]) setSelectedFile(e.target.files[0])
+    if (e.target.files?.[0]) {
+      setSelectedFile(e.target.files[0])
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -124,23 +144,30 @@ function App() {
     }
 
     let fileUrl = null
+
     if (selectedFile) {
       setIsUploading(true)
       try {
         const fileExt = selectedFile.name.split('.').pop().toLowerCase()
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
         
+        // Determine correct bucket
         let bucket = 'chat_images'
         if (selectedFile.type.startsWith('video/')) bucket = 'chat_videos'
         else if (selectedFile.type === 'application/pdf') bucket = 'chat_pdfs'
 
-        const { error: uploadError } = await supabase.storage.from(bucket).upload(fileName, selectedFile)
+        const { error: uploadError } = await supabase.storage
+          .from(bucket)
+          .upload(fileName, selectedFile)
+
         if (uploadError) throw uploadError
 
         const { data } = supabase.storage.from(bucket).getPublicUrl(fileName)
         fileUrl = data.publicUrl
       } catch (error) {
         alert('Upload failed: ' + error.message)
+        setIsUploading(false)
+        return
       }
       setIsUploading(false)
     }
@@ -149,8 +176,9 @@ function App() {
       username, 
       content: inputText, 
       reply_to_id: replyTo?.id || null,
-      image_url: fileUrl 
+      image_url: fileUrl // reusing column as generic file_url
     }])
+
     if (!error) cancelAction()
   }
 
@@ -174,6 +202,34 @@ function App() {
     alert("Link copied to clipboard!")
   }
 
+  const handleDelete = (id) => setDeleteModal({ open: true, id, type: 'single' })
+  
+  const confirmDelete = async () => {
+    try {
+      if (deleteModal.type === 'single') {
+        const id = deleteModal.id
+        const msgToDelete = messages.find(m => m.id === id)
+        if (msgToDelete?.image_url) {
+          const url = msgToDelete.image_url
+          const bucket = url.includes('chat_videos') ? 'chat_videos' : url.includes('chat_pdfs') ? 'chat_pdfs' : 'chat_images'
+          const fileName = url.split('/').pop()
+          await supabase.storage.from(bucket).remove([fileName])
+        }
+        await supabase.from('messages').delete().eq('id', id)
+        
+        // Restore: Reset states if deleted message was being replied to or edited
+        if (replyTo?.id === id) setReplyTo(null)
+        if (editingId === id) cancelAction()
+      } else if (deleteModal.type === 'all') {
+        await supabase.from('messages').delete().neq('id', -1)
+      }
+    } catch (err) {
+      console.error('Delete failed:', err)
+    } finally {
+      setDeleteModal({ open: false, id: null, type: null })
+    }
+  }
+
   const cancelAction = () => {
     setReplyTo(null)
     setEditingId(null)
@@ -182,7 +238,16 @@ function App() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  // --- 4. RENDER HELPERS ---
+  // --- 5. RENDER HELPERS ---
+  const highlightText = (text) => {
+    if (!text || !searchTerm.trim()) return text
+    const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'))
+    return parts.map((part, i) => 
+      part.toLowerCase() === searchTerm.toLowerCase() 
+        ? <mark key={i} className="search-highlight">{part}</mark> : part
+    )
+  }
+
   const renderMedia = (url) => {
     if (!url) return null
     const ext = url.split('.').pop().toLowerCase()
@@ -226,6 +291,7 @@ function App() {
     return <a href={url} target="_blank" rel="noreferrer">File Attachment</a>
   }
 
+  // --- 6. UI RENDER ---
   if (!isLoggedIn) {
     return (
       <div className="login-container">
@@ -244,14 +310,15 @@ function App() {
         <div className="header-top">
           <div className="logo-area">
             <h3>Rayabaari</h3>
-            {/* RESTORED BADGE ACTION */}
             <span className="badge" onClick={() => setPresenceModalOpen(true)} title="View active users">{activeUsers} Active</span>
           </div>
           <span className="user-tag">{username}</span>
         </div>
+
         <div className="toolbar">
           <div className="search-box">
-            <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <input type="text" placeholder="Search chat..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            {searchTerm && <span className="search-count">{searchMatches.length > 0 ? `${currentMatchIndex + 1}/${searchMatches.length}` : '0/0'}</span>}
           </div>
           <button onClick={() => setCurrentMatchIndex(p => (p - 1 + searchMatches.length) % searchMatches.length)} disabled={!searchMatches.length}><ChevronUp size={18}/></button>
           <button onClick={() => setCurrentMatchIndex(p => (p + 1) % searchMatches.length)} disabled={!searchMatches.length}><ChevronDown size={18}/></button>
@@ -260,36 +327,88 @@ function App() {
       </header>
 
       <div className="messages-list">
-        {messages.map((msg) => (
-          <div key={msg.id} id={`msg-${msg.id}`} className={`message-row ${msg.username === username ? 'mine' : 'theirs'}`}>
-            <div className={`bubble ${searchMatches[currentMatchIndex] === msg.id ? 'highlight-bubble' : ''}`}>
-              {msg.reply_to_id && <div className="reply-quote"><p>Replying to message...</p></div>}
-              {msg.username !== username && <span className="sender-name">{msg.username}</span>}
-              {renderMedia(msg.image_url)}
-              {msg.content && <div className="text-content">{msg.content}</div>}
-              <div className="bubble-footer">
-                <span className="timestamp">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                <div className="msg-actions">
-                  <button onClick={() => setReplyTo(msg)}><Reply size={14}/></button>
-                  {msg.username === username && <button onClick={() => { setEditingId(msg.id); setInputText(msg.content); }}><Edit size={14}/></button>}
+        {messages.map((msg) => {
+          const isMe = msg.username === username;
+          const isMatch = searchMatches[currentMatchIndex] === msg.id;
+          return (
+            <div key={msg.id} id={`msg-${msg.id}`} className={`message-row ${isMe ? 'mine' : 'theirs'}`}>
+              <div className={`bubble ${isMatch ? 'highlight-bubble' : ''}`}>
+                {msg.reply_to_id && (
+                  <div className="reply-quote">
+                    <strong>{messages.find(m => m.id === msg.reply_to_id)?.username || 'Unknown'}</strong>
+                    <p>{messages.find(m => m.id === msg.reply_to_id)?.content || '📎 Attachment'}</p>
+                  </div>
+                )}
+                {!isMe && <span className="sender-name">{msg.username}</span>}
+                {renderMedia(msg.image_url)}
+                {msg.content && <div className="text-content">{highlightText(msg.content)}</div>}
+                <div className="bubble-footer">
+                  {msg.is_edited && <span className="edited-tag">edited</span>}
+                  <span className="timestamp">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <div className="msg-actions">
+                    <button onClick={() => { setReplyTo(msg); setEditingId(null); }}><Reply size={14}/></button>
+                    {isMe && (
+                      <>
+                        <button onClick={() => { setEditingId(msg.id); setInputText(msg.content); }}><Edit size={14}/></button>
+                        <button onClick={() => handleDelete(msg.id)} className="delete-icon"><Trash2 size={14}/></button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         <div ref={messagesEndRef} />
       </div>
 
       <div className="footer-container">
+        {(replyTo || editingId) && (
+          <div className="action-banner">
+            <span>{editingId ? "Editing message..." : `Replying to ${replyTo.username}`}</span>
+            <button onClick={cancelAction}><X size={16}/></button>
+          </div>
+        )}
+        {selectedFile && (
+          <div className="preview-banner">
+            <span>📎 {selectedFile.name}</span>
+            <button onClick={() => setSelectedFile(null)}><X size={16}/></button>
+          </div>
+        )}
         <form className="input-form" onSubmit={handleSubmit}>
           <input type="file" accept="image/*,video/*,application/pdf" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} />
-          <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()}><Paperclip size={20}/></button>
-          <textarea className="chat-input" placeholder="Type here..." value={inputText} onChange={(e) => setInputText(e.target.value)} />
-          <button type="submit" className="send-btn" disabled={isUploading}>{isUploading ? <div className="spinner" /> : <Send size={20}/>}</button>
+          {!editingId && (
+            <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()}><Paperclip size={20}/></button>
+          )}
+          <textarea 
+            className="chat-input" 
+            placeholder="Type here..." 
+            value={inputText} 
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); }}}
+            onFocus={() => setTimeout(scrollToBottom, 300)}
+            inputMode="text"
+            autoCorrect="on"
+            autoComplete="off"
+          />
+          <button type="submit" className="send-btn" disabled={isUploading}>
+            {isUploading ? <div className="spinner" /> : <Send size={20}/>}
+          </button>
         </form>
       </div>
 
-      {/* RESTORED PRESENCE MODAL */}
+      {deleteModal.open && (
+        <div className="modal-overlay">
+          <div className="confirm-modal">
+            <h4>{deleteModal.type === 'all' ? 'Delete All Conversations?' : 'Delete Message?'}</h4>
+            <div className="modal-actions">
+              <button onClick={() => setDeleteModal({ open: false, id: null, type: null })} className="btn">Cancel</button>
+              <button onClick={confirmDelete} className="btn btn-danger">Yes, delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {presenceModalOpen && (
         <div className="modal-overlay" onClick={() => setPresenceModalOpen(false)}>
           <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
