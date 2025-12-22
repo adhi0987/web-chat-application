@@ -6,10 +6,16 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+html, body, #root {
+  height: 100dvh;
+}
+
 body {
   background-color: #f0f2f5;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100dvh;
+  height: auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* --- Login Screen --- */
@@ -74,6 +80,11 @@ body {
   background-color: #efe7dd;
   box-shadow: 0 0 20px rgba(0,0,0,0.1);
   position: relative;
+}
+
+/* Respect device safe area (notches) and avoid footer overlap */
+.app-container {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* --- Header & Toolbar --- */
@@ -204,6 +215,11 @@ body {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #ced3d6 transparent;
+}
+
+/* Ensure messages have extra bottom padding so they're not hidden behind footer/keyboard */
+.messages-list {
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
 
 .messages-list::-webkit-scrollbar {
@@ -369,6 +385,10 @@ mark.search-highlight {
   padding: 8px 12px;
   border-top: 1px solid #d1d7db;
   flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 90;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
 }
 
 .action-banner, .preview-banner {
@@ -433,6 +453,11 @@ mark.search-highlight {
   outline: none;
   font-size: 1rem;
   line-height: 1.4;
+}
+
+/* Prevent iOS/Android zoom on focus by ensuring >=16px font-size */
+input, textarea, button {
+  font-size: 16px;
 }
 
 .attach-btn, .send-btn {
@@ -820,3 +845,112 @@ textarea:focus-visible {
     break-inside: avoid;
   }
 }
+
+/* --- Media Styling --- */
+.media-container {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.chat-image {
+  width: 100%;
+  max-height: 350px;
+  display: block;
+  object-fit: cover;
+}
+
+.chat-video {
+  width: 100%;
+  max-height: 350px;
+  background: #000;
+  display: block;
+}
+
+/* Media Overlay for Share/Download */
+.media-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.media-container:hover .media-overlay,
+.media-overlay.always-visible {
+  opacity: 1;
+}
+
+.media-overlay button {
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  color: #333;
+}
+
+.media-overlay button:hover {
+  background: #fff;
+  transform: scale(1.1);
+}
+
+/* PDF Styling */
+.pdf-attachment {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pdf-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.pdf-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pdf-actions button {
+  flex: 1;
+  background: #fff;
+  border: 1px solid #d1d7db;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.pdf-actions button:hover {
+  background: #f0f2f5;
+}
+
+/* Ensure bubbles handle width for media correctly */
+.bubble {
+  min-width: 120px;
+}
+
+.mine .pdf-attachment { background: #c6ebbc; } /* slightly darker than bubble */
