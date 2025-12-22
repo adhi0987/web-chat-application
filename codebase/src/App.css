@@ -845,3 +845,112 @@ textarea:focus-visible {
     break-inside: avoid;
   }
 }
+
+/* --- Media Styling --- */
+.media-container {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.chat-image {
+  width: 100%;
+  max-height: 350px;
+  display: block;
+  object-fit: cover;
+}
+
+.chat-video {
+  width: 100%;
+  max-height: 350px;
+  background: #000;
+  display: block;
+}
+
+/* Media Overlay for Share/Download */
+.media-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.media-container:hover .media-overlay,
+.media-overlay.always-visible {
+  opacity: 1;
+}
+
+.media-overlay button {
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  color: #333;
+}
+
+.media-overlay button:hover {
+  background: #fff;
+  transform: scale(1.1);
+}
+
+/* PDF Styling */
+.pdf-attachment {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pdf-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.pdf-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pdf-actions button {
+  flex: 1;
+  background: #fff;
+  border: 1px solid #d1d7db;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.pdf-actions button:hover {
+  background: #f0f2f5;
+}
+
+/* Ensure bubbles handle width for media correctly */
+.bubble {
+  min-width: 120px;
+}
+
+.mine .pdf-attachment { background: #c6ebbc; } /* slightly darker than bubble */
