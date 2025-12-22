@@ -5,7 +5,7 @@ import './App.css'
 
 import { 
   Paperclip, Send, Edit, Trash2, Reply, 
-  ChevronUp, ChevronDown, X, Download, FileText, Plus, ArrowLeft, PlayCircle 
+  ChevronUp, ChevronDown, X, Download, FileText, ArrowLeft
 } from 'lucide-react';
 
 // Secure key for encryption/decryption
@@ -365,13 +365,15 @@ function App() {
               <button className="back-btn" onClick={() => setView('chat')} style={{background: 'none', border: 'none', color: 'white', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'}}>
                 <ArrowLeft size={18}/> Back to Chat
               </button>
-              <h3>Admin Management</h3>
+              <h3 style={{textTransform: 'capitalize', color: 'white'}}>Admin Management</h3>
            </div>
         </header>
-        <form className="add-room-form" onSubmit={createNewRoom} style={{display: 'flex', gap: '10px', marginBottom: '30px'}}>
+        <form className="add-room-form" onSubmit={createNewRoom} style={{ gap: '10px', marginBottom: '30px'}}>
+          <label htmlFor="roomName">Room name</label>
           <input name="roomName" className="login-input" placeholder="Room Name" required style={{flex: 1}} />
+          <label htmlFor="roomCode">Room code</label>
           <input name="roomCode" className="login-input" placeholder="New Secret Code" required style={{flex: 1}} />
-          <button type="submit" className="login-btn" style={{padding: '0 25px'}}><Plus size={18}/></button>
+          <button type="submit" className="login-btn" style={{padding: '10px 25px',width:'50%',margin:'0px 25%'}}>Submit</button>
         </form>
         <table style={{width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: '8px', overflow: 'hidden'}}>
           <thead style={{background: '#008069', color: 'white'}}>
