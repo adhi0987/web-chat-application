@@ -6,10 +6,16 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+html, body, #root {
+  height: 100dvh;
+}
+
 body {
   background-color: #f0f2f5;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100dvh;
+  height: auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* --- Login Screen --- */
@@ -74,6 +80,11 @@ body {
   background-color: #efe7dd;
   box-shadow: 0 0 20px rgba(0,0,0,0.1);
   position: relative;
+}
+
+/* Respect device safe area (notches) and avoid footer overlap */
+.app-container {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* --- Header & Toolbar --- */
@@ -204,6 +215,11 @@ body {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #ced3d6 transparent;
+}
+
+/* Ensure messages have extra bottom padding so they're not hidden behind footer/keyboard */
+.messages-list {
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
 
 .messages-list::-webkit-scrollbar {
@@ -369,6 +385,10 @@ mark.search-highlight {
   padding: 8px 12px;
   border-top: 1px solid #d1d7db;
   flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 90;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
 }
 
 .action-banner, .preview-banner {
@@ -433,6 +453,11 @@ mark.search-highlight {
   outline: none;
   font-size: 1rem;
   line-height: 1.4;
+}
+
+/* Prevent iOS/Android zoom on focus by ensuring >=16px font-size */
+input, textarea, button {
+  font-size: 16px;
 }
 
 .attach-btn, .send-btn {

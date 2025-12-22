@@ -358,6 +358,10 @@ function App() {
             value={inputText} 
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); }}}
+            onFocus={() => setTimeout(scrollToBottom, 300)}
+            inputMode="text"
+            autoCorrect="on"
+            autoComplete="off"
           />
           <button type="submit" className="send-btn" disabled={isUploading}>
             {isUploading ? <div className="spinner" /> : <Send size={20}/>}
