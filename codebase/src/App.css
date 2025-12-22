@@ -215,7 +215,7 @@ body {
 }
 
 .messages-list {
-  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  padding-bottom: calc(2px + env(safe-area-inset-bottom));
 }
 
 .message-row { 
@@ -376,7 +376,7 @@ body {
 
 .timestamp { 
   font-size: 0.7rem;
-  color: #667781;
+  color: #2d3539;
 }
 
 .msg-actions {
