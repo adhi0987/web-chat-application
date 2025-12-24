@@ -346,33 +346,26 @@ function App() {
   // --- 7. ADMIN PAGE FUNCTIONS ---
   const handleUpdateRoom = async (e) => {
     e.preventDefault();
-    console.log("Editing room:", editingRoom);
     const newName = e.target.roomName.value;
     const newCode = e.target.roomCode.value;
-    const oldCode = editingRoom.secret_code; // The decrypted old code from state
-    console.log("Updating room:", editingRoom.id, newName, newCode, oldCode);
-    // if(oldCode === "[Encrypted Content]") {
-    //   const {error:roomError} = await supabase
-    //     .from('rooms')
-    //     .update({
-    //       room_name: newName,
-    //       secret_code: encryptData(newCode)
-    //     })
-    //     .eq('secret_code', "119202021");
-    // }
+
+    // Use the original room name from state as the identifier
+    const oldName = editingRoom.room_name;
+    const oldCode = editingRoom.secret_code;
+
     try {
-      // 1. Update the room details in the 'rooms' table
+      // 1. Update the room details using the original room_name
       const { error: roomError } = await supabase
         .from('rooms')
         .update({
           room_name: newName,
           secret_code: encryptData(newCode)
         })
-        .eq('id', editingRoom.id);
+        .eq('room_name', oldName); // Changed from .eq('id', ...)
 
       if (roomError) throw roomError;
 
-      // 2. If the secret code was changed, update all existing messages
+      // 2. If the secret code was changed, update associated messages
       if (newCode !== oldCode) {
         const { error: msgError } = await supabase
           .from('messages')
@@ -385,7 +378,7 @@ function App() {
       setEditingRoom(null);
       e.target.reset();
       fetchRoomsForAdmin();
-      alert("Room and associated messages updated successfully.");
+      alert("Room updated successfully.");
     } catch (error) {
       console.error("Update error:", error);
       alert("Failed to update: " + error.message);
@@ -404,11 +397,11 @@ function App() {
 
         if (msgError) throw msgError;
 
-        // 2. Delete the room entry itself
+        // 2. Delete the room entry itself using room_name
         const { error: roomError } = await supabase
           .from('rooms')
           .delete()
-          .eq('id', room.id);
+          .eq('room_name', room.room_name); // Changed from .eq('id', ...)
 
         if (roomError) throw roomError;
 
