@@ -3,8 +3,8 @@ import { supabase } from './supabaseClient'
 import CryptoJS from 'crypto-js'
 import './App.css'
 
-import { 
-  Paperclip, Send, Edit, Trash2, Reply, 
+import {
+  Paperclip, Send, Edit, Trash2, Reply,
   ChevronUp, ChevronDown, X, Download, FileText, ArrowLeft
 } from 'lucide-react';
 
@@ -39,7 +39,8 @@ function App() {
   const [editingId, setEditingId] = useState(null)
   const [deleteModal, setDeleteModal] = useState({ open: false, id: null, type: null })
   const [presenceModalOpen, setPresenceModalOpen] = useState(false)
-  
+  const [editingRoom, setEditingRoom] = useState(null);
+
   const fileInputRef = useRef(null)
   const messagesEndRef = useRef(null)
 
@@ -81,9 +82,11 @@ function App() {
     try {
       const { data: rooms, error } = await supabase.from('rooms').select('*');
       if (error) throw error;
-
+      console.log("Fetched rooms:", rooms);
+      console.log("User entered code:", secretCode);
       const matchedRoom = rooms.find(r => {
         const decryptedStored = decryptData(r.secret_code);
+        console.log(`Comparing stored: "${decryptedStored}" with entered: "${secretCode}"`);
         return decryptedStored === secretCode || r.secret_code === secretCode;
       });
 
@@ -108,11 +111,11 @@ function App() {
     // Use unique channel per secret code for better isolation
     const channel = supabase
       .channel(`room-${secretCode.substring(0, 8)}`)
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
         table: 'messages',
-        filter: `room_secret_code=eq.${secretCode}` 
+        filter: `room_secret_code=eq.${secretCode}`
       }, (payload) => {
         handleRealtimeEvent(payload);
       })
@@ -129,8 +132,8 @@ function App() {
         }
       });
 
-    return () => { 
-      supabase.removeChannel(channel); 
+    return () => {
+      supabase.removeChannel(channel);
     };
   }, [isLoggedIn, view, secretCode]);
 
@@ -140,7 +143,7 @@ function App() {
       .select('*')
       .eq('room_secret_code', secretCode)
       .order('created_at', { ascending: true });
-    
+
     if (!error) {
       const decrypted = data.map(msg => ({
         ...msg,
@@ -177,7 +180,7 @@ function App() {
     }
 
     const matches = messages
-      .filter(msg => 
+      .filter(msg =>
         (msg.content || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         msg.username.toLowerCase().includes(searchTerm.toLowerCase())
       )
@@ -221,28 +224,28 @@ function App() {
       try {
         const fileExt = selectedFile.name.split('.').pop();
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        
+
         let bucket = 'chat_images';
         if (selectedFile.type.startsWith('video/')) bucket = 'chat_videos';
         else if (selectedFile.type === 'application/pdf') bucket = 'chat_pdfs';
-        
+
         const { error: uploadError } = await supabase.storage.from(bucket).upload(fileName, selectedFile);
         if (uploadError) throw uploadError;
 
         const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
         fileUrl = data.publicUrl;
-      } catch (err) { 
-        alert('Upload failed: ' + err.message); 
+      } catch (err) {
+        alert('Upload failed: ' + err.message);
       }
       setIsUploading(false);
     }
 
-    const { error } = await supabase.from('messages').insert([{ 
-      username, 
-      content: encryptData(inputText), 
+    const { error } = await supabase.from('messages').insert([{
+      username,
+      content: encryptData(inputText),
       room_secret_code: secretCode,
       reply_to_id: replyTo?.id || null,
-      image_url: fileUrl 
+      image_url: fileUrl
     }]);
 
     if (!error) cancelAction();
@@ -299,9 +302,9 @@ function App() {
   const highlightText = (text) => {
     if (!text || !searchTerm.trim()) return text;
     const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'));
-    return parts.map((part, i) => 
-      part.toLowerCase() === searchTerm.toLowerCase() 
-        ? <mark key={i} style={{backgroundColor: '#ffd700', borderRadius: '2px'}}>{part}</mark> : part
+    return parts.map((part, i) =>
+      part.toLowerCase() === searchTerm.toLowerCase()
+        ? <mark key={i} style={{ backgroundColor: '#ffd700', borderRadius: '2px' }}>{part}</mark> : part
     );
   };
 
@@ -340,8 +343,75 @@ function App() {
       </div>
     );
   };
+  // --- 7. ADMIN PAGE FUNCTIONS ---
+  const handleUpdateRoom = async (e) => {
+    e.preventDefault();
+    const newName = e.target.roomName.value;
+    const newCode = e.target.roomCode.value;
 
-  // --- 7. VIEWS ---
+    // Use the original room name from state as the identifier
+    const oldName = editingRoom.room_name;
+    const oldCode = editingRoom.secret_code;
+
+    try {
+      // 1. Update the room details using the original room_name
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({
+          room_name: newName,
+          secret_code: encryptData(newCode)
+        })
+        .eq('room_name', oldName); // Changed from .eq('id', ...)
+
+      if (roomError) throw roomError;
+
+      // 2. If the secret code was changed, update associated messages
+      if (newCode !== oldCode) {
+        const { error: msgError } = await supabase
+          .from('messages')
+          .update({ room_secret_code: newCode })
+          .eq('room_secret_code', oldCode);
+
+        if (msgError) throw msgError;
+      }
+
+      setEditingRoom(null);
+      e.target.reset();
+      fetchRoomsForAdmin();
+      alert("Room updated successfully.");
+    } catch (error) {
+      console.error("Update error:", error);
+      alert("Failed to update: " + error.message);
+    }
+  };
+  const handleDeleteRoom = async (room) => {
+    const confirmMsg = `Are you sure you want to delete "${room.room_name}"? This will permanently delete all chat history for this room.`;
+
+    if (window.confirm(confirmMsg)) {
+      try {
+        // 1. Delete all messages associated with this room's code
+        const { error: msgError } = await supabase
+          .from('messages')
+          .delete()
+          .eq('room_secret_code', room.secret_code);
+
+        if (msgError) throw msgError;
+
+        // 2. Delete the room entry itself using room_name
+        const { error: roomError } = await supabase
+          .from('rooms')
+          .delete()
+          .eq('room_name', room.room_name); // Changed from .eq('id', ...)
+
+        if (roomError) throw roomError;
+
+        fetchRoomsForAdmin();
+      } catch (error) {
+        alert("Error deleting room: " + error.message);
+      }
+    }
+  };
+  // --- 8. VIEWS ---
 
   if (view === 'login') {
     return (
@@ -350,7 +420,7 @@ function App() {
           <h2 style={{ color: '#008069' }}>Rayabaari Secure Chat</h2>
           <input required type="text" className="login-input" placeholder="Display Name" value={username} onChange={(e) => setUsername(e.target.value)} />
           <input required type="password" className="login-input" placeholder="Secret Access Code" value={secretCode} onChange={(e) => setSecretCode(e.target.value)} />
-          {loginError && <p style={{color: '#ff4d4d', fontSize: '13px', margin: '10px 0'}}>{loginError}</p>}
+          {loginError && <p style={{ color: '#ff4d4d', fontSize: '13px', margin: '10px 0' }}>{loginError}</p>}
           <button type="submit" className="login-btn">Join Conversation</button>
         </form>
       </div>
@@ -359,31 +429,69 @@ function App() {
 
   if (view === 'room-creator') {
     return (
-      <div className="admin-container" style={{padding: '20px', maxWidth: '800px', margin: '0 auto'}}>
-        <header className="chat-header" style={{borderRadius: '10px', marginBottom: '20px'}}>
-           <div className="header-top">
-              <button className="back-btn" onClick={() => setView('chat')} style={{background: 'none', border: 'none', color: 'white', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'}}>
-                <ArrowLeft size={18}/> Back to Chat
-              </button>
-              <h3 style={{textTransform: 'capitalize', color: 'white'}}>Admin Management</h3>
-           </div>
+      <div className="admin-container" style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
+        <header className="chat-header" style={{ borderRadius: '10px', marginBottom: '20px' }}>
+          <div className="header-top">
+            <button className="back-btn" onClick={() => { setView('chat'); setEditingRoom(null); }} style={{ background: 'none', border: 'none', color: 'white', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <ArrowLeft size={18} /> Back to Chat
+            </button>
+            <h3 style={{ textTransform: 'capitalize', color: 'white' }}>
+              {editingRoom ? 'Edit Room' : 'Admin Management'}
+            </h3>
+          </div>
         </header>
-        <form className="add-room-form" onSubmit={createNewRoom} style={{ gap: '10px', marginBottom: '30px'}}>
-          <label htmlFor="roomName">Room name</label>
-          <input name="roomName" className="login-input" placeholder="Room Name" required style={{flex: 1}} />
-          <label htmlFor="roomCode">Room code</label>
-          <input name="roomCode" className="login-input" placeholder="New Secret Code" required style={{flex: 1}} />
-          <button type="submit" className="login-btn" style={{padding: '10px 25px',width:'50%',margin:'0px 25%'}}>Submit</button>
+
+        {/* Conditional Form: Create or Update */}
+        <form className="add-room-form" onSubmit={editingRoom ? handleUpdateRoom : createNewRoom} style={{ gap: '10px', marginBottom: '30px' }}>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+            <div style={{ flex: 1 }}>
+              <label>Room Name</label>
+              <input name="roomName" className="login-input" defaultValue={editingRoom?.room_name || ''} key={editingRoom?.id + '-name'} placeholder="Room Name" required />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label>Room Code</label>
+              <input name="roomCode" className="login-input" defaultValue={editingRoom?.secret_code || ''} key={editingRoom?.id + '-code'} placeholder="Secret Code" required />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+            <button type="submit" className="login-btn" style={{ padding: '10px 25px', width: '200px' }}>
+              {editingRoom ? 'Update Room' : 'Create Room'}
+            </button>
+            {editingRoom && (
+              <button type="button" onClick={() => setEditingRoom(null)} className="login-btn" style={{ padding: '10px 25px', width: '200px', background: '#666' }}>
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
-        <table style={{width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: '8px', overflow: 'hidden'}}>
-          <thead style={{background: '#008069', color: 'white'}}>
-            <tr><th style={{padding: '12px', textAlign: 'left'}}>Room Name</th><th style={{padding: '12px', textAlign: 'left'}}>Decrypted Code</th></tr>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
+          <thead style={{ background: '#008069', color: 'white' }}>
+            <tr>
+              <th style={{ padding: '12px', textAlign: 'left' }}>Room Name</th>
+              <th style={{ padding: '12px', textAlign: 'left' }}>Decrypted Code</th>
+              <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
+            </tr>
           </thead>
           <tbody>
             {roomsList.map((r, i) => (
-              <tr key={i} style={{borderBottom: '1px solid #eee'}}>
-                <td style={{padding: '12px'}}>{r.room_name}</td>
-                <td style={{padding: '12px', fontFamily: 'monospace'}}>{r.secret_code}</td>
+              <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+                <td style={{ padding: '12px' }}>{r.room_name}</td>
+                <td style={{ padding: '12px', fontFamily: 'monospace' }}>{r.secret_code}</td>
+                <td style={{ padding: '12px', display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                  <button
+                    onClick={() => setEditingRoom(r)}
+                    style={{ background: '#008069', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}
+                  >
+                    <Edit size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteRoom(r)}
+                    style={{ background: '#ff4d4d', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -397,7 +505,7 @@ function App() {
       <header className="chat-header">
         <div className="header-top">
           <div className="logo-area">
-            <h3 style={{textTransform: 'capitalize'}}>{roomName}</h3>
+            <h3 style={{ textTransform: 'capitalize' }}>{roomName}</h3>
             <span className="badge" onClick={() => setPresenceModalOpen(true)}>{activeUsers} Online</span>
           </div>
           <span className="user-tag">{username}</span>
@@ -408,9 +516,9 @@ function App() {
             <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             {searchTerm && <span className="search-count">{searchMatches.length > 0 ? `${currentMatchIndex + 1}/${searchMatches.length}` : '0/0'}</span>}
           </div>
-          <button onClick={() => setCurrentMatchIndex(p => (p - 1 + searchMatches.length) % searchMatches.length)} disabled={!searchMatches.length}><ChevronUp size={18}/></button>
-          <button onClick={() => setCurrentMatchIndex(p => (p + 1) % searchMatches.length)} disabled={!searchMatches.length}><ChevronDown size={18}/></button>
-          <button className="danger-btn" onClick={() => setDeleteModal({ open: true, id: null, type: 'all' })} title="Clear Room History"><Trash2 size={18}/></button>
+          <button onClick={() => setCurrentMatchIndex(p => (p - 1 + searchMatches.length) % searchMatches.length)} disabled={!searchMatches.length}><ChevronUp size={18} /></button>
+          <button onClick={() => setCurrentMatchIndex(p => (p + 1) % searchMatches.length)} disabled={!searchMatches.length}><ChevronDown size={18} /></button>
+          <button className="danger-btn" onClick={() => setDeleteModal({ open: true, id: null, type: 'all' })} title="Clear Room History"><Trash2 size={18} /></button>
         </div>
       </header>
 
@@ -428,19 +536,19 @@ function App() {
                   </div>
                 )}
                 {!isMe && <span className="sender-name">{msg.username}</span>}
-                
+
                 {renderMedia(msg.image_url)}
 
                 {msg.content && <div className="text-content">{highlightText(msg.content)}</div>}
-                
+
                 <div className="bubble-footer">
                   <span className="timestamp">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   <div className="msg-actions">
-                    <button onClick={() => setReplyTo(msg)} title="Reply"><Reply size={14}/></button>
+                    <button onClick={() => setReplyTo(msg)} title="Reply"><Reply size={14} /></button>
                     {isMe && (
                       <>
-                        <button onClick={() => { setEditingId(msg.id); setInputText(msg.content); }} title="Edit"><Edit size={14}/></button>
-                        <button onClick={() => setDeleteModal({ open: true, id: msg.id, type: 'single' })} className="delete-icon" title="Delete"><Trash2 size={14}/></button>
+                        <button onClick={() => { setEditingId(msg.id); setInputText(msg.content); }} title="Edit"><Edit size={14} /></button>
+                        <button onClick={() => setDeleteModal({ open: true, id: msg.id, type: 'single' })} className="delete-icon" title="Delete"><Trash2 size={14} /></button>
                       </>
                     )}
                   </div>
@@ -456,27 +564,27 @@ function App() {
         {(replyTo || editingId) && (
           <div className="action-banner">
             <span>{editingId ? "Editing Message..." : `Replying to ${replyTo.username}`}</span>
-            <button onClick={cancelAction}><X size={16}/></button>
+            <button onClick={cancelAction}><X size={16} /></button>
           </div>
         )}
         {selectedFile && (
           <div className="preview-banner">
-            <span>📎 {selectedFile.name} ({(selectedFile.size/1024).toFixed(1)} KB)</span>
-            <button onClick={() => setSelectedFile(null)}><X size={16}/></button>
+            <span>📎 {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+            <button onClick={() => setSelectedFile(null)}><X size={16} /></button>
           </div>
         )}
         <form className="input-form" onSubmit={handleSubmit}>
           <input type="file" ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files[0])} style={{ display: 'none' }} />
-          <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()}><Paperclip size={20}/></button>
-          <textarea 
-            className="chat-input" 
-            placeholder="Type a message..." 
-            value={inputText} 
+          <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()}><Paperclip size={20} /></button>
+          <textarea
+            className="chat-input"
+            placeholder="Type a message..."
+            value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); }}}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
           />
           <button type="submit" className="send-btn" disabled={isUploading}>
-            {isUploading ? <div className="spinner" /> : <Send size={20}/>}
+            {isUploading ? <div className="spinner" /> : <Send size={20} />}
           </button>
         </form>
       </div>
