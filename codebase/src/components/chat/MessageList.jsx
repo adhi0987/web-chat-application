@@ -28,7 +28,7 @@ export default function MessageList({
         console.log("prevCount:", prevCount);
         console.log("messages.length:", messages.length);
     }
-    if (messages.length > prevCount && scrollTop < 50 && prevCount !== 0) {
+    if (messages.length >= prevCount && scrollTop < 50 && prevCount !== 0) {
       console.debug && console.debug('MessageList: pagination detected - preserving scroll position', { prevCount, newCount: messages.length });
       // Maintain scroll position so the list doesn't "jump"
       containerRef.current.scrollTop = scrollHeight - lastScrollHeight.current;
