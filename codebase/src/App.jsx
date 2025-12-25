@@ -114,6 +114,7 @@ function App() {
         onTriggerAdmin={() => setView('room-creator')}
         replyTo={replyTo}
         editingId={editingId}
+        messages={messages}
         onCancelAction={() => { setReplyTo(null); setEditingId(null); }}
       />
 

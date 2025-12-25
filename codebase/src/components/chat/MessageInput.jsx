@@ -1,10 +1,20 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Paperclip, Send, X } from 'lucide-react';
 
-export default function MessageInput({ onSendMessage, onTriggerAdmin, replyTo, onCancelReply }) {
+export default function MessageInput({ onSendMessage, onTriggerAdmin, replyTo, editingId, messages, onCancelAction }) {
   const [inputText, setInputText] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
+
+  // Sync input text when editingId changes to load message for editing
+  useEffect(() => {
+    if (editingId && messages) {
+      const msgToEdit = messages.find(m => String(m.id) === String(editingId));
+      if (msgToEdit) {
+        setInputText(msgToEdit.content);
+      }
+    }
+  }, [editingId, messages]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -23,12 +33,16 @@ export default function MessageInput({ onSendMessage, onTriggerAdmin, replyTo, o
     setSelectedFile(null);
   };
 
+  const isActionActive = replyTo || editingId;
+
   return (
     <div className="footer-container">
-      {replyTo && (
+      {isActionActive && (
         <div className="action-banner">
-          <span>Replying to {replyTo.username}</span>
-          <button onClick={onCancelReply}><X size={16} /></button>
+          <span>
+            {editingId ? "Editing message" : `Replying to ${replyTo?.username}`}
+          </span>
+          <button onClick={onCancelAction}><X size={16} /></button>
         </div>
       )}
       <form className="input-form" onSubmit={handleSubmit}>
