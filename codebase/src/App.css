@@ -673,3 +673,94 @@ body {
   padding: 15px 20px;
   color: white;
 }
+
+/* --- Emoji Reaction Styles --- */
+.reactions-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.reaction-badge {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.02);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.2s ease;
+}
+
+.reaction-badge:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.reaction-picker-container {
+  position: relative;
+  display: inline-flex;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  color: #666;
+}
+
+.reaction-menu {
+  display: none;
+  position: absolute;
+  bottom: -40px;
+  left: -75px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  padding: 4px 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 50;
+  margin-bottom: 2px;
+  animation: fadeIn 0.2s ease;
+}
+
+/* Add an invisible bridge so the hover doesn't break when moving the mouse up */
+.reaction-menu::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 10px; /* This covers the gap between the menu and the button */
+  background: transparent;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+
+
+.reaction-picker-container:hover .reaction-menu {
+  display: flex;
+  gap: 6px;
+}
+
+.reaction-menu button {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 2px;
+  transition: transform 0.1s ease;
+}
+
+.reaction-menu button:hover {
+  transform: scale(1.3);
+}

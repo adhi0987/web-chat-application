@@ -33,11 +33,14 @@ function App() {
     }
   }, [searchProps.currentMatchIndex]);
 
-  const handleSendMessage = async (text, file) => {
+ const handleSendMessage = async (text, file) => {
+    console.log("[App] Attempting to send message...");
+    
     if (editingId) {
-      await supabase.from('messages')
+      const { error } = await supabase.from('messages')
         .update({ content: encryptData(text), is_edited: true })
         .eq('id', editingId);
+      if (error) console.error("[App] Update Error:", error.message);
       setEditingId(null);
       return;
     }
@@ -55,13 +58,21 @@ function App() {
       }
     }
 
-    await supabase.from('messages').insert([{
+    const { error } = await supabase.from('messages').insert([{
       username: user.username,
       content: encryptData(text),
       room_secret_code: user.secretCode,
       reply_to_id: replyTo?.id || null,
       image_url: fileUrl
     }]);
+
+    if (error) {
+      console.error("[App] Insert Error:", error.message);
+      alert("Failed to send message: " + error.message);
+    } else {
+      console.log("[App] Message inserted successfully");
+    }
+    
     setReplyTo(null);
   };
 
