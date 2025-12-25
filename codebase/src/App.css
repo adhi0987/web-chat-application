@@ -347,7 +347,58 @@ body {
   justify-content: center;
   gap: 4px;
 }
+/* admin page */
+.admin-header .back-btn
+{
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 1rem;
+}
 
+.add-room-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  max-width: 400px;
+  margin: 40px auto;
+}
+.add-room-form input {
+  padding: 10px 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+  outline: none;
+}
+.rooms-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  align-items: center;
+  text-align: center;
+}
+.rooms-table .edit-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #007bff;
+  padding: 4px 8px;
+}
+.rooms-table .delete-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #dc3545;
+  padding: 4px 8px;
+}
 /* --- Bubble Context --- */
 .sender-name {
   display: block;
@@ -565,4 +616,60 @@ body {
 
 .image-container:hover .image-overlay-btn {
   opacity: 1;
+}
+
+/* Maintain original layout but add helpers for the new components */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 1200px;
+  margin: 0 auto;
+  background: #f0f2f5;
+}
+
+/* Modal Enhancements */
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.close-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #666;
+}
+
+.presence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.presence-item {
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+/* Highlight search results */
+.highlight-bubble {
+  border: 2px solid #ffd700 !important;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+/* Ensure admin back button looks consistent */
+.admin-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: #008069;
+  padding: 15px 20px;
+  color: white;
 }
