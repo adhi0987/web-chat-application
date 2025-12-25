@@ -23,6 +23,11 @@ export default function MessageList({
     console.debug && console.debug('MessageList useEffect start', { messagesLength: messages.length, prevCount, scrollTop, scrollHeight, lastScrollHeight: lastScrollHeight.current });
 
     // CASE 1: Messages were added to the TOP (Pagination)
+    if(scrollTop<50)
+    {
+        console.log("prevCount:", prevCount);
+        console.log("messages.length:", messages.length);
+    }
     if (messages.length > prevCount && scrollTop < 50 && prevCount !== 0) {
       console.debug && console.debug('MessageList: pagination detected - preserving scroll position', { prevCount, newCount: messages.length });
       // Maintain scroll position so the list doesn't "jump"
