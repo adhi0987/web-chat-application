@@ -14,9 +14,11 @@ export default function MessageList({ messages, username, searchMatches, current
         <MessageItem
           key={msg.id}
           msg={msg}
+          username={username}
           isMe={msg.username === username}
           isMatch={searchMatches && searchMatches[currentMatchIndex] === msg.id}
-          parentMsg={messages.find(m => m.id === msg.reply_to_id)}
+          // Use loose equality (==) for bigint IDs which might come as strings from Realtime
+          parentMsg={messages.find(m => String(m.id) === String(msg.reply_to_id))}
           onReply={onReply}
           onEdit={onEdit}
           onDelete={onDelete}
