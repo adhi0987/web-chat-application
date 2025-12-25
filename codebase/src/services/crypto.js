@@ -15,7 +15,7 @@ export const encryptData = (text) => {
 
 export const decryptData = (cipherText) => {
     if (!cipherText) return '';
-    console.log("Decryption fn called with cipherText:", cipherText);
+    console.log("[crytpo] Decrypting text...");
     try {
         const bytes = CryptoJS.AES.decrypt(cipherText, ENCRYPTION_KEY);
         const originalText = bytes.toString(CryptoJS.enc.Utf8);
