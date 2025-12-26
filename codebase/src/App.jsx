@@ -125,7 +125,7 @@ function App() {
           onClose={() => setDeleteModal({ open: false, id: null, type: null })}
           footerActions={<>
             <button className="btn" onClick={() => setDeleteModal({ open: false })}>Cancel</button>
-            <button className="btn btn-danger" onClick={confirmDelete}>Delete</button>
+            <button className="btn-danger" onClick={confirmDelete}>Delete</button>
           </>}
         />
       )}
