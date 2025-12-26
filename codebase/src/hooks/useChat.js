@@ -1,44 +1,72 @@
+// src/hooks/useChat.js
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { decryptData } from '../services/crypto';
+
+const PAGE_SIZE = 30;
 
 export function useChat(secretCode, username) {
     const [messages, setMessages] = useState([]);
     const [activeUsers, setActiveUsers] = useState(0);
     const [activeUserList, setActiveUserList] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
 
-    const fetchMessages = useCallback(async () => {
-        console.log("[Chat] Fetching messages...");
-        const { data, error } = await supabase
+    const fetchMessages = useCallback(async (isLoadMore = false) => {
+        if (!secretCode || isLoading) return;
+        
+        setIsLoading(true);
+        console.log(`[Chat] Fetching messages... (LoadMore: ${isLoadMore})`);
+
+        let query = supabase
             .from('messages')
             .select('*, reactions:message_reactions(*)')
             .eq('room_secret_code', secretCode)
-            // 1. Order by DESCENDING to get the newest messages first
             .order('created_at', { ascending: false })
-            // 2. Optional: Explicitly set a limit if you want more than 1000
+            .limit(PAGE_SIZE);
+
+        // If loading more, fetch messages older than the oldest one currently loaded
+        if (isLoadMore && messages.length > 0) {
+            const oldestTimestamp = messages[0].created_at;
+            query = query.lt('created_at', oldestTimestamp);
+        }
+
+        const { data, error } = await query;
 
         if (error) {
             console.error("[Chat] Fetch Error:", error.message);
+            setIsLoading(false);
             return;
         }
-        console.log(`[Chat] Fetched ${data.length} messages`);
 
-        // 3. Reverse the array so the oldest of the "latest" messages are at the top
         const processed = data.reverse().map(msg => ({
             ...msg,
             content: decryptData(msg.content),
             reactions: msg.reactions || []
         }));
 
-        setMessages(processed);
-    }, [secretCode]);
+        if (isLoadMore) {
+            setMessages(prev => [...processed, ...prev]);
+        } else {
+            setMessages(processed);
+        }
+
+        // If we fetched fewer than PAGE_SIZE, we've reached the end
+        setHasMore(data.length === PAGE_SIZE);
+        setIsLoading(false);
+    }, [secretCode, messages, isLoading]);
+
+    // Initial load
+    useEffect(() => {
+        if (secretCode) {
+            fetchMessages(false);
+        }
+    }, [secretCode]); 
 
     useEffect(() => {
         if (!secretCode) return;
 
-        fetchMessages();
-
-        // Create a unique channel for this room
+        // Real-time subscription for NEW messages
         const channel = supabase
             .channel(`room-${secretCode}`)
             .on('postgres_changes', {
@@ -47,7 +75,6 @@ export function useChat(secretCode, username) {
                 table: 'messages',
                 filter: `room_secret_code=eq.${secretCode}`
             }, (payload) => {
-                console.log("[Chat] New Message Event:", payload.eventType);
                 const { eventType, new: newRow, old: oldRow } = payload;
 
                 setMessages((prev) => {
@@ -66,33 +93,24 @@ export function useChat(secretCode, username) {
                     return prev;
                 });
             })
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'message_reactions'
-            }, () => {
-                console.log("[Chat] Reaction Change Detected - Refreshing...");
-                fetchMessages();
-            })
             .on('presence', { event: 'sync' }, () => {
                 const state = channel.presenceState();
                 const names = Object.values(state || {}).flatMap(v => v.map(p => p.user)).filter(Boolean);
-                const unique = [...new Set(names)];
-                setActiveUsers(unique.length);
-                setActiveUserList(unique);
+                setActiveUsers([...new Set(names)].length);
+                setActiveUserList([...new Set(names)]);
             })
             .subscribe((status) => {
-                console.log(`[Chat] Subscription Status: ${status}`);
                 if (status === 'SUBSCRIBED') {
                     channel.track({ user: username, online_at: new Date().toISOString() });
                 }
             });
 
         return () => {
-            console.log("[Chat] Cleaning up channel");
             supabase.removeChannel(channel);
         };
-    }, [secretCode, username, fetchMessages]);
+    }, [secretCode, username]);
 
-    return { messages, activeUsers, activeUserList };
+    const loadMore = () => fetchMessages(true);
+
+    return { messages, activeUsers, activeUserList, isLoading, hasMore, loadMore };
 }
