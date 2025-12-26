@@ -22,7 +22,16 @@ function App() {
   const [deleteModal, setDeleteModal] = useState({ open: false, id: null, type: null });
   const [presenceOpen, setPresenceOpen] = useState(false);
 
-  const { messages, activeUsers, activeUserList } = useChat(user.secretCode, user.username);
+  // const { messages, activeUsers, activeUserList } = useChat(user.secretCode, user.username);
+  
+  const { 
+    messages, 
+    activeUsers, 
+    activeUserList, 
+    isLoading, 
+    hasMore, 
+    loadMore 
+  } = useChat(user.secretCode, user.username);
   const searchProps = useSearch(messages);
 
   // Scroll to search match logic
@@ -107,6 +116,9 @@ function App() {
         onReply={setReplyTo}
         onEdit={(msg) => setEditingId(msg.id)}
         onDelete={(id) => setDeleteModal({ open: true, id, type: 'single' })}
+        loadMore={loadMore}
+        hasMore={hasMore}
+        isLoading={isLoading} 
       />
 
       <MessageInput 
