@@ -4,7 +4,7 @@ self.addEventListener('push', (event) => {
   
   const options = {
     body: data.body,
-    icon: '/log0_2.svg',
+    icon: '/logo_2.svg',
     badge: '/logo_2.svg', // Small icon for notification bar
     data: {
       url: self.location.origin // The URL to open when clicked
