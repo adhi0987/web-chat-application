@@ -3,6 +3,7 @@ import { supabase } from './services/supabase';
 import { encryptData } from './services/crypto';
 import { useChat } from './hooks/useChat';
 import { useSearch } from './hooks/useSearch';
+import { usePushNotifications } from './hooks/usePushNotifications';
 
 import Header from './components/layout/Header';
 import MessageList from './components/chat/MessageList';
@@ -22,8 +23,6 @@ function App() {
   const [deleteModal, setDeleteModal] = useState({ open: false, id: null, type: null });
   const [presenceOpen, setPresenceOpen] = useState(false);
 
-  // const { messages, activeUsers, activeUserList } = useChat(user.secretCode, user.username);
-  
   const { 
     messages, 
     activeUsers, 
@@ -33,6 +32,28 @@ function App() {
     loadMore 
   } = useChat(user.secretCode, user.username);
   const searchProps = useSearch(messages);
+
+  const { subscribeUser } = usePushNotifications();
+
+  // Subscribe to push notifications on login
+  // Handle Login Success
+  const handleLoginSuccess = (userData) => {
+    setUser(userData);
+    setView('chat');
+    // Register for push notifications
+    subscribeUser(userData.username); 
+  };
+
+  // --- NEW: Request notification permission on login ---
+  useEffect(() => {
+    if (view === 'chat' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().then(permission => {
+          console.log("[Notifications] Permission status:", permission);
+        });
+      }
+    }
+  }, [view]);
 
   // Scroll to search match logic
   useEffect(() => {
@@ -94,7 +115,7 @@ function App() {
     setDeleteModal({ open: false, id: null, type: null });
   };
 
-  if (view === 'login') return <Login onLoginSuccess={(d) => { setUser(d); setView('chat'); }} />;
+  if (view === 'login') return <Login onLoginSuccess={handleLoginSuccess} />;
   if (view === 'room-creator') return <RoomManager onBack={() => setView('chat')} />;
 
   return (
@@ -130,7 +151,6 @@ function App() {
         onCancelAction={() => { setReplyTo(null); setEditingId(null); }}
       />
 
-      {/* Modals */}
       {deleteModal.open && (
         <Modal 
           title={deleteModal.type === 'all' ? 'Clear history?' : 'Delete message?'}

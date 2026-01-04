@@ -42,7 +42,7 @@ export default function MessageInput({ onSendMessage, onTriggerAdmin, replyTo, e
           <span>
             {editingId ? "Editing message" : `Replying to ${replyTo?.username}`}
           </span>
-          <button onClick={onCancelAction}><X size={16} /></button>
+          <button onClick={onCancelAction}><X size={14} /></button>
         </div>
       )}
       <form className="input-form" onSubmit={handleSubmit}>
