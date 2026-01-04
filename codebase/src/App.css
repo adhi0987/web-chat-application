@@ -284,6 +284,12 @@ body {
   font-size: 0.85rem;
 }
 
+.action-banner button {
+  background: none;
+  color: rgb(0, 0, 0);
+  border: none;
+}
+
 .input-form { display: flex; align-items: center; gap: 12px; }
 
 .chat-input {

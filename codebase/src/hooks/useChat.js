@@ -1,4 +1,3 @@
-// src/hooks/useChat.js
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { decryptData } from '../services/crypto';
@@ -25,7 +24,6 @@ export function useChat(secretCode, username) {
             .order('created_at', { ascending: false })
             .limit(PAGE_SIZE);
 
-        // If loading more, fetch messages older than the oldest one currently loaded
         if (isLoadMore && messages.length > 0) {
             const oldestTimestamp = messages[0].created_at;
             query = query.lt('created_at', oldestTimestamp);
@@ -51,12 +49,10 @@ export function useChat(secretCode, username) {
             setMessages(processed);
         }
 
-        // If we fetched fewer than PAGE_SIZE, we've reached the end
         setHasMore(data.length === PAGE_SIZE);
         setIsLoading(false);
     }, [secretCode, messages, isLoading]);
 
-    // Initial load
     useEffect(() => {
         if (secretCode) {
             fetchMessages(false);
@@ -66,7 +62,6 @@ export function useChat(secretCode, username) {
     useEffect(() => {
         if (!secretCode) return;
 
-        // Real-time subscription for NEW messages
         const channel = supabase
             .channel(`room-${secretCode}`)
             .on('postgres_changes', {
@@ -79,6 +74,23 @@ export function useChat(secretCode, username) {
 
                 setMessages((prev) => {
                     if (eventType === 'INSERT') {
+                        // BROWSER NOTIFICATION LOGIC
+                        // Notify only if the message is from someone else AND the tab is hidden
+                        console.log("[chat]docment hidden status:", document.hidden); 
+                        // if(!document.hidden) {
+                        //     document.hidden = true; // FOR TESTING PURPOSES ONLY
+                        // }
+                        if (newRow.username !== username && document.hidden) {
+                            if (Notification.permission === 'granted') {
+                                const decrypted = decryptData(newRow.content);
+                                new Notification(`New message from ${newRow.username}`, {
+                                    body: decrypted,
+                                    icon: '/logo_2.svg', // Assumes logo.svg is in public folder
+                                    tag: 'chat-notification',
+                                });
+                            }
+                        }
+
                         return [...prev, { ...newRow, content: decryptData(newRow.content), reactions: [] }];
                     }
                     if (eventType === 'UPDATE') {
